@@ -1,0 +1,36 @@
+name: Windows-VST3 bauen
+
+# Vorerst nur manuell. Ein automatisches Release bei jedem Push kommt erst, wenn das Plugin etwas kann.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurieren
+        run: cmake -B build -A x64
+
+      - name: Bauen
+        run: cmake --build build --config Release --parallel
+
+      - name: Plugin bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doppelganger-VST3-Windows
+          path: build/Doppelganger_artefacts/Release/VST3
+          if-no-files-found: error
+
+      - name: Stabilitaetstest (pluginval)
+        shell: pwsh
+        run: |
+          curl.exe -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          ./pluginval/pluginval.exe --strictness-level 8 --validate-in-process --validate "build/Doppelganger_artefacts/Release/VST3/Doppelganger.vst3"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
