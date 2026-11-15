@@ -50,7 +50,9 @@ public:
     float learnedSecondsSoFar() const;
 
     static constexpr float kMinLearnSeconds = 4.0f;    // weniger Sprache reicht nicht fuer ein verlaessliches Klangbild
-    static constexpr float kAutoStopSeconds = 30.0f;   // danach beendet das Plugin das Lernen selbst
+    static constexpr float kAutoStopSeconds = 30.0f;   // danach beendet das Plugin das Lernen spaetestens selbst
+    static constexpr float kConvergeCheckFromSeconds = 10.0f;   // ab hier prueft es jede Sekunde, ob es genug gelernt hat
+    bool wasStoppedAutomatically() const { return stoppedAuto.load(); }
 
     // Fuer die Anzeige (Message-Thread)
     struct DisplayInfo
@@ -110,6 +112,10 @@ private:
     std::array<LiveTap, (size_t) dop::kRefGridPoints> liveTab;
     double liveTabFs = 0.0;
     void analyseLive (const std::vector<float>& ring, uint32_t pos, dop::GridCurve& out);
+
+    dop::ConvergenceTracker convergence;
+    float nextConvergeCheck = 0.0f;
+    std::atomic<bool> stoppedAuto { false };
 
     std::atomic<float>* pAmount = nullptr;
     std::atomic<float>* pRegister = nullptr;

@@ -47,8 +47,8 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "De-Esser und Leveler stecken in einem Plugin.");
 
     head ("STIMME LERNEN");
-    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Nach 30 Sekunden "
-          "Sprache hört es von selbst auf, mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
+    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Es prüft selbst, ob das Klangbild "
+          "sich nicht mehr verändert, und hört dann von allein auf (frühestens nach 10 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
           "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
 
@@ -67,6 +67,9 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 dB, "
           "bei 100 % etwa 10 dB. Vokale bleiben unberührt. Frequenz: ab hier sucht und bearbeitet der De-Esser die S-Laute (Standard 5,5 kHz). "
           "Tiefer bei dumpfen oder männlichen Stimmen, höher bei hellen.");
+    body ("Rechts daneben zeigt die Anzeige, was der De-Esser gerade tut: der Balken hängt von oben herunter, so tief wie die aktuelle Absenkung (0 bis 12 dB), "
+          "der Strich markiert die letzte Spitze. Daneben läuft ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter S-Laut, der gedämpft wurde. "
+          "Bleibt die Anzeige leer, erkennt er keine S-Laute, dann ist die Stärke zu niedrig oder die Frequenz passt nicht.");
     body ("Listen: spielt nur den Bereich ab, auf den der De-Esser hört. So findest du schnell die richtige Frequenz. Danach wieder ausschalten.");
     note ("Klingen die S-Laute eines Takes ohnehin schwach oder lispelnd, den De-Esser ausschalten.");
 
@@ -104,7 +107,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
         else proc.startLearning();
         timerCallback();
     };
-    learnButton.setTooltip (u8 ("Learn drücken, dann die Spur abspielen. Stoppt nach 30 s Sprache von selbst oder mit „Done“."));
+    learnButton.setTooltip (u8 ("Learn drücken, dann die Spur abspielen. Stoppt von selbst, sobald es genug gelernt hat, oder mit „Done“."));
     forgetButton.setButtonText ("CLEAR");
     forgetButton.setTooltip (u8 ("Gelerntes löschen. Danach arbeiten nur Lowcut, De-Esser und Leveler."));
     forgetButton.onClick = [this] { proc.forgetProfile(); timerCallback(); };
@@ -206,8 +209,7 @@ void DoppelgangerEditor::timerCallback()
     if (proc.isLearning())
     {
         headline = u8 ("Lernt …");
-        statusText = u8 ("Jetzt die Spur abspielen. Stoppt nach ") + juce::String ((int) DoppelgangerProcessor::kAutoStopSeconds)
-                     + u8 (" s Sprache von selbst.");
+        statusText = u8 ("Jetzt die Spur abspielen. Es hört von selbst auf, sobald es genug gelernt hat.");
     }
     else if (shown.message.isNotEmpty())
         statusText = shown.message;
@@ -221,7 +223,17 @@ void DoppelgangerEditor::timerCallback()
         statusText = (manual ? u8 ("fest gewählt  ·  ") : juce::String())
                      + (shown.profile.pitchHz > 0 ? u8 ("Tonhöhe ") + juce::String (juce::roundToInt (shown.profile.pitchHz)) + " Hz"
                                                   : u8 ("Tonhöhe nicht erkannt, Referenz Mittel"))
-                     + u8 ("  ·  ") + juce::String (juce::roundToInt (shown.profile.speechSeconds)) + u8 (" s gelernt");
+                     + u8 ("  ·  ") + juce::String (juce::roundToInt (shown.profile.speechSeconds)) + u8 (" s gelernt")
+                     + (proc.wasStoppedAutomatically() ? u8 ("  ·  automatisch beendet") : juce::String());
+    }
+
+    // De-Esser-Anzeige: Spitze seit dem letzten Bild, Haltemarke faellt langsam
+    {
+        const float pk = proc.getEngine().meterDeessPeakDb.exchange (0.0f);
+        deessCurDb = pk;
+        deessHoldDb = pk >= deessHoldDb ? pk : std::max (0.0f, deessHoldDb - 0.25f);
+        deessHist[(size_t) deessHistPos] = pk;
+        deessHistPos = (deessHistPos + 1) % kDeessHist;
     }
 
     // Live-Spektrum: schnell hoch, etwas traeger runter; in Pausen langsam ausblenden
@@ -455,9 +467,49 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     }
 
     // Untere Reihe
-    card (12.0f, 310.0f, 196.0f, 128.0f, "KLANG");
-    card (218.0f, 310.0f, 254.0f, 128.0f, "DE-ESSER");
-    card (482.0f, 310.0f, 186.0f, 128.0f, "LAUTHEIT");
+    card (12.0f, 310.0f, 172.0f, 128.0f, "KLANG");
+    card (194.0f, 310.0f, 292.0f, 128.0f, "DE-ESSER");
+    card (496.0f, 310.0f, 172.0f, 128.0f, "LAUTHEIT");
+
+    // De-Esser-Anzeige: Balken (aktuelle Absenkung, haengt von oben) + Verlauf der letzten Sekunden
+    {
+        const float top = 336.0f, bot = 416.0f, h = bot - top;
+        const float maxDb = 12.0f;
+        auto depth = [&] (float db) { return juce::jlimit (0.0f, 1.0f, db / maxDb) * h; };
+        const juce::Rectangle<float> bar (424.0f, top, 12.0f, h), hist (442.0f, top, 40.0f, h);
+        g.setColour (theme.dim.withAlpha (0.18f));
+        g.fillRoundedRectangle (bar, 3.0f);
+        g.fillRoundedRectangle (hist, 3.0f);
+        if (deessCurDb > 0.05f)
+        {
+            g.setColour (theme.accent);
+            g.fillRoundedRectangle (bar.withHeight (std::max (2.0f, depth (deessCurDb))), 3.0f);
+        }
+        if (deessHoldDb > 0.05f)
+        {
+            g.setColour (theme.text);
+            g.fillRect (bar.getX() - 2.0f, top + depth (deessHoldDb) - 1.0f, bar.getWidth() + 4.0f, 2.0f);
+        }
+        juce::Path hp;
+        hp.startNewSubPath (hist.getX(), top);
+        for (int i = 0; i < kDeessHist; ++i)
+        {
+            const float v = deessHist[(size_t) ((deessHistPos + i) % kDeessHist)];
+            hp.lineTo (hist.getX() + hist.getWidth() * (float) i / (kDeessHist - 1), top + depth (v));
+        }
+        hp.lineTo (hist.getRight(), top);
+        hp.closeSubPath();
+        g.setColour (theme.accent.withAlpha (0.55f));
+        g.fillPath (hp);
+        g.setColour (theme.dim);
+        g.setFont (juce::FontOptions (9.5f));
+        g.drawText ("0", 424, (int) top - 11, 20, 10, juce::Justification::centredLeft);
+        g.drawText (u8 ("−12 dB"), 424, (int) bot + 1, 58, 11, juce::Justification::centredLeft);
+        g.setColour (deessHoldDb > 0.05f ? theme.text : theme.dim);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (deessHoldDb > 0.05f ? u8 ("−") + juce::String (deessHoldDb, 1) + " dB" : juce::String ("S: –"),
+                    442, (int) top - 12, 40, 12, juce::Justification::centredRight);
+    }
 }
 
 void DoppelgangerEditor::resized()
@@ -484,17 +536,17 @@ void DoppelgangerEditor::resized()
 
     auto place = [] (Knob& k, int x, int y)
     {
-        k.label.setBounds (x, y, 92, 16);
-        k.slider.setBounds (x, y + 16, 92, 88);
+        k.label.setBounds (x, y, 80, 16);
+        k.slider.setBounds (x, y + 16, 80, 88);
     };
-    place (amountKnob, 18, 330);
-    place (lowcutKnob, 112, 330);
-    place (deessKnob, 224, 330);
-    place (deessFreqKnob, 314, 330);
-    deessOnButton.setBounds (410, 344, 54, 28);
-    deessListenButton.setBounds (410, 382, 54, 28);
-    place (levelerKnob, 486, 330);
-    place (targetKnob, 576, 330);
+    place (amountKnob, 14, 330);
+    place (lowcutKnob, 94, 330);
+    place (deessKnob, 198, 330);
+    place (deessFreqKnob, 278, 330);
+    deessOnButton.setBounds (358, 340, 60, 28);
+    deessListenButton.setBounds (358, 378, 60, 28);
+    place (levelerKnob, 500, 330);
+    place (targetKnob, 580, 330);
 
     helpScroll.toFront (false);
 }

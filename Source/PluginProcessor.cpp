@@ -239,8 +239,26 @@ void DoppelgangerProcessor::drainFifo()
 void DoppelgangerProcessor::timerCallback()
 {
     drainFifo();
-    if (learning.load() && learnedSecondsSoFar() >= kAutoStopSeconds)
-        finishLearning();
+    if (learning.load())
+    {
+        const float sec = learnedSecondsSoFar();
+        bool enough = sec >= kAutoStopSeconds;
+        if (! enough && sec >= kConvergeCheckFromSeconds && sec >= nextConvergeCheck)
+        {
+            nextConvergeCheck = sec + 1.0f;
+            dop::LearnedProfile snap;
+            {
+                const juce::ScopedLock sl (learnerLock);
+                snap = learner.finish();
+            }
+            enough = convergence.update (snap);
+        }
+        if (enough)
+        {
+            finishLearning();
+            stoppedAuto = true;
+        }
+    }
 
     const float amount = pAmount->load(), lowcut = pLowcut->load();
     const int reg = (int) pRegister->load();
@@ -302,6 +320,9 @@ void DoppelgangerProcessor::startLearning()
         const juce::ScopedLock sl (infoLock);
         info.message = {};
     }
+    convergence.reset();
+    nextConvergeCheck = kConvergeCheckFromSeconds;
+    stoppedAuto = false;
     learning = true;
 }
 
@@ -339,6 +360,7 @@ void DoppelgangerProcessor::forgetProfile()
     const juce::ScopedLock sl (infoLock);
     info.profile = {};
     info.message = {};
+    stoppedAuto = false;
     designDirty = true;
 }
 

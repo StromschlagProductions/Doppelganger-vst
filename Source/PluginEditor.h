@@ -84,6 +84,10 @@ private:
     // Live-Spektrum (geglaettet fuer die Anzeige)
     dop::GridCurve liveIn {}, liveOut {};
     float liveAlpha = 0.0f;
+    static constexpr int kDeessHist = 90;           // ca. 3,6 s bei 25 Bildern/s
+    std::array<float, (size_t) kDeessHist> deessHist {};
+    int deessHistPos = 0;
+    float deessCurDb = 0.0f, deessHoldDb = 0.0f;
     bool liveHasData = false;
 
     DoppelgangerProcessor::DisplayInfo shown;

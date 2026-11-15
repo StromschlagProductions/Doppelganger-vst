@@ -573,6 +573,46 @@ constexpr double kBandQ = 2.1;
 
 inline double bandFreq (int k) { return 50.0 * std::pow (2.0, k / 3.0); }
 
+//==============================================================================
+// Erkennt, wann das Lernen "genug" hat: Klangbild, Tonhoehe und Lautheit aendern sich kaum noch.
+inline double curveDistanceDb (const GridCurve& a, const GridCurve& b)
+{
+    double sum = 0; int n = 0;
+    for (int i = 0; i < kRefGridPoints; ++i)
+        if (kRefGridHz[i] >= 100.0f && kRefGridHz[i] <= 8000.0f) { sum += std::abs (a[(size_t) i] - b[(size_t) i]); ++n; }
+    return n > 0 ? sum / n : 0.0;
+}
+
+struct ConvergenceTracker
+{
+    static constexpr double kCurveTolDb = 0.35;   // mittlere Abweichung zum Stand von vor etwa 1 s
+    static constexpr double kPitchTol = 0.06;     // 6 %
+    static constexpr double kLoudTolLu = 0.5;
+    static constexpr int kNeeded = 3;             // so oft hintereinander stabil
+
+    LearnedProfile prev;
+    int stable = 0;
+    double lastCurveDist = 99.0;
+
+    void reset() { prev = LearnedProfile(); stable = 0; lastCurveDist = 99.0; }
+
+    // true, wenn das Profil seit mehreren Pruefungen stabil ist
+    bool update (const LearnedProfile& p)
+    {
+        if (! p.valid) return false;
+        if (prev.valid)
+        {
+            lastCurveDist = curveDistanceDb (prev.curveDb, p.curveDb);
+            const bool pitchOk = (prev.pitchHz <= 0 || p.pitchHz <= 0) ? true
+                                 : std::abs (p.pitchHz - prev.pitchHz) / prev.pitchHz < kPitchTol;
+            const bool loudOk = std::abs (p.loudnessLufs - prev.loudnessLufs) < kLoudTolLu;
+            stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk) ? stable + 1 : 0;
+        }
+        prev = p;
+        return stable >= kNeeded;
+    }
+};
+
 struct BankDesign
 {
     std::array<Biquad, kBands> coeffs {};
@@ -698,7 +738,7 @@ public:
     static constexpr int kMaxCh = 2;
     static constexpr double kMaxRangeDb = 10.0;   // Leveler-Regelbereich bei 100 %
 
-    std::atomic<float> meterRideDb { 0.0f }, meterStaticDb { 0.0f }, meterDeessDb { 0.0f },
+    std::atomic<float> meterRideDb { 0.0f }, meterStaticDb { 0.0f }, meterDeessDb { 0.0f }, meterDeessPeakDb { 0.0f },
                        meterInLufs { -100.0f }, meterOutLufs { -100.0f }, meterOutPeakDb { -100.0f };
 
     void prepare (double sampleRate)
@@ -855,6 +895,8 @@ public:
         meterRideDb.store ((float) ride2);
         meterStaticDb.store ((float) staticDb);
         meterDeessDb.store ((float) maxDe);
+        if ((float) maxDe > meterDeessPeakDb.load (std::memory_order_relaxed))
+            meterDeessPeakDb.store ((float) maxDe, std::memory_order_relaxed);   // Editor holt und setzt zurueck
         meterInLufs.store ((float) (-0.691 + 10.0 * std::log10 (msK + 1e-20)));
         meterOutLufs.store ((float) (-0.691 + 10.0 * std::log10 (outMs + 1e-20)));
         meterOutPeakDb.store ((float) (20.0 * std::log10 (peak + 1e-12)));
