@@ -8,8 +8,7 @@ ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Status:** Entwicklung (Version 0.2). Die Klangfunktion ist fertig und getestet, die Oberfläche ist noch eine
-schlichte Testversion. Das endgültige Design folgt.
+**Status:** Version 0.3. Klangfunktion und Oberfläche sind fertig, Feinabstimmung nach Praxistests.
 
 ## Warum es dieses Plugin gibt
 
@@ -23,22 +22,29 @@ einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
 2. **Lernen** drücken und die Spur abspielen. Nach 30 Sekunden Sprache hört das Plugin selbst auf, man kann aber
-   auch vorher **Fertig** drücken (mindestens 4 Sekunden Sprache).
-3. Das Plugin erkennt die Tonhöhe und wählt bei **Stimmlage: Auto** die passende Referenz (unter 160 Hz Mann,
-   bis 225 Hz Frau mittel, darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
+   auch vorher **Fertig** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
+3. Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
+   darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
 
 ## Regler (alle automatisierbar)
 
-| Regler | Wirkung |
-|---|---|
-| **Angleichung** | Wie stark die Klangfarbe an die Referenz angeglichen wird. 100 % = ganz, Standard 60 %: Mikrofon und Raum werden angeglichen, die eigene Stimmfarbe bleibt. Der reine Pegelunterschied wird dabei nie angeglichen, nur die Klangform; Korrekturen sind auf ±9 dB begrenzt. |
-| **Stimmlage** | Auto, Tief (Mann), Mittel (Frau), Hoch (Frau). |
-| **Lowcut** | 24 dB/Oktave, 20–200 Hz (ganz links = aus), Standard 80 Hz. |
-| **De-Esser** | 0 % = aus. Senkt nur die Zischlaute ab (dynamischer Höhen-Shelf ab 4,5 kHz). Bei 25 % etwa 3 dB, bei 100 % etwa 10 dB. Bei Takes mit schwachen S-Lauten (lispelnd) auf 0 % stellen. |
-| **Leveler** | Die Lautheit wird immer auf das Ziel gebracht (integrierte Lautheit nach EBU R128, gleitend über ca. 20 s). Der Regler bestimmt zusätzlich, wie stark Schwankungen innerhalb der Sätze ausgeglichen werden: 0 % = Dynamik bleibt wie gesprochen, 100 % = sehr gleichmäßig. In Pausen wird nicht nachgeregelt. |
-| **Ziel-Lautheit** | −30 bis −14 LUFS, Standard −23 LUFS. |
+| Bereich | Regler | Wirkung |
+|---|---|---|
+| Klang | **Angleichung** | Wie stark die Klangfarbe an die Referenz angeglichen wird. Standard 60 %: Mikrofon und Raum werden angeglichen, die eigene Stimmfarbe bleibt. Nur die Klangform, nie der Pegel; höchstens ±9 dB. |
+| Klang | **Lowcut** | 24 dB/Oktave, 20–200 Hz (ganz links = aus), Standard 80 Hz. |
+| De-Esser | **AN / AUS** | Schaltet den De-Esser gezielt ab, zum Vergleich. |
+| De-Esser | **Stärke** | Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Vokale bleiben unberührt. |
+| De-Esser | **Frequenz** | 3–10 kHz, Standard 5,5 kHz: ab hier sucht und bearbeitet der De-Esser die S-Laute. |
+| De-Esser | **NUR S** | Spielt nur den Bereich ab, auf den der De-Esser hört (zum Einstellen der Frequenz). |
+| Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
+| Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 
-Am Ende sitzt immer ein Limiter (−1 dBTP). Latenz: 74 Samples bei 48 kHz (ca. 1,5 ms), die Studio One automatisch ausgleicht.
+Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
+ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen
+Limiter; Spitzen fängt der Limiter auf dem Master ab.
+
+Oberfläche: Look Dunkel/Hell, Fenster frei skalierbar (50–300 %, Start bei 150 %), Hilfe über den **?**-Knopf,
+Tooltips an allen Reglern.
 
 ## Referenzen
 

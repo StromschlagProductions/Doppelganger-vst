@@ -13,6 +13,9 @@ DoppelgangerProcessor::DoppelgangerProcessor()
     pDeess = apvts.getRawParameterValue ("deess");
     pLeveler = apvts.getRawParameterValue ("leveler");
     pTarget = apvts.getRawParameterValue ("target");
+    pDeessOn = apvts.getRawParameterValue ("deessOn");
+    pDeessFreq = apvts.getRawParameterValue ("deessFreq");
+    pDeessListen = apvts.getRawParameterValue ("deessListen");
     fifoBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
     drainBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
     startTimerHz (30);
@@ -47,10 +50,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoppelgangerProcessor::creat
         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
             { return v <= 20.5f ? String ("aus") : String (juce::roundToInt (v)) + " Hz"; })));
 
-    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "deess", 1 }, "De-Esser",
+    params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "deessOn", 1 }, "De-Esser an", true));
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "deess", 1 }, String (CharPointer_UTF8 ("De-Esser Stärke")),
         NormalisableRange<float> (0.0f, 100.0f, 1.0f), 25.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+    NormalisableRange<float> dfRange (3000.0f, 10000.0f, 10.0f);
+    dfRange.setSkewForCentre (5500.0f);
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "deessFreq", 1 }, "De-Esser Frequenz", dfRange, 5500.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
-            { return v < 0.5f ? String ("aus") : String (juce::roundToInt (v)) + " %"; })));
+            { return String (v / 1000.0f, 1) + " kHz"; })));
+    params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "deessListen", 1 }, String (CharPointer_UTF8 ("De-Esser nur S hören")), false));
 
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "leveler", 1 }, "Leveler",
         NormalisableRange<float> (0.0f, 100.0f, 1.0f), 50.0f,
@@ -74,7 +83,7 @@ void DoppelgangerProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     }
     learning = false;   // ein laufendes Lernen passt nach einem Neustart nicht mehr zur Abtastrate
     tapBuf.assign ((size_t) juce::jmax (512, samplesPerBlock), 0.0f);
-    setLatencySamples (engine.latencySamples());   // nur der Limiter-Vorlauf (ca. 1,5 ms)
+    setLatencySamples (engine.latencySamples());   // 0: latenzfrei
     designDirty = true;
     redesign();
 }
@@ -95,6 +104,11 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     dop::EngineParams p;
     p.lowcutHz = pLowcut->load();
     p.deess = pDeess->load() * 0.01f;
+    p.deessOn = pDeessOn->load() > 0.5f;
+    p.deessFreqHz = pDeessFreq->load();
+    p.deessListen = pDeessListen->load() > 0.5f;
+    p.takeLufs = takeLufs.load();
+    p.rideOffsetDb = rideOffset.load();
     p.leveler = pLeveler->load() * 0.01f;
     p.targetLufs = pTarget->load();
     engine.setParams (p);
@@ -181,6 +195,13 @@ void DoppelgangerProcessor::redesign()
             d = dop::fitBank (info.correction, currentFs);
             info.fitErrorDb = d.maxErrorDb;
         }
+        // Lautheit der Spur nach dem EQ: daraus ergibt sich die feste Grundverstaerkung
+        if (info.profile.valid && info.profile.loudnessLufs > -99.0f)
+            takeLufs = info.profile.loudnessLufs + dop::eqLoudnessDeltaDb (info.profile.curveDb, info.correction);
+        else
+            takeLufs = -100.0f;
+        rideOffset = info.profile.valid ? info.profile.typicalOffsetDb : -2.5f;
+        info.needsRelearnForLoudness = info.profile.valid && info.profile.loudnessLufs <= -99.0f;
     }
     const juce::SpinLock::ScopedLockType sl (bankLock);
     pendingBank = d.coeffs;
@@ -272,6 +293,8 @@ void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
             pt.setProperty ("curve", vals.joinIntoString (" "), nullptr);
             pt.setProperty ("pitch", info.profile.pitchHz, nullptr);
             pt.setProperty ("seconds", info.profile.speechSeconds, nullptr);
+            pt.setProperty ("lufs", info.profile.loudnessLufs, nullptr);
+            pt.setProperty ("typical", info.profile.typicalOffsetDb, nullptr);
             state.appendChild (pt, nullptr);
         }
     }
@@ -297,6 +320,8 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
             for (int i = 0; i < dop::kRefGridPoints; ++i) p.curveDb[(size_t) i] = vals[i].getFloatValue();
             p.pitchHz = (float) pt.getProperty ("pitch", 0.0f);
             p.speechSeconds = (float) pt.getProperty ("seconds", 0.0f);
+            p.loudnessLufs = (float) pt.getProperty ("lufs", -100.0f);
+            p.typicalOffsetDb = (float) pt.getProperty ("typical", -2.5f);
             p.valid = true;
         }
         state.removeChild (pt, nullptr);

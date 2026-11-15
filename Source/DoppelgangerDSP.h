@@ -2,12 +2,12 @@
 // Reines C++ ohne JUCE, damit die Engine unabhaengig vom Plugin getestet werden kann (tests/).
 //
 // Signalweg je Kanal:
-//   Eingang -> Lowcut (24 dB/Okt.) -> Match-EQ (26 Glockenfilter, gelernt) -> De-Esser -> Leveler -> Limiter -> Ausgang
+//   Eingang -> Lowcut (24 dB/Okt.) -> Match-EQ (26 Glockenfilter, gelernt) -> De-Esser -> Grundverstaerkung -> Leveler -> Ausgang
 //
 // Lernen (Learner): Das Plugin schickt das Signal nach dem Lowcut in einen Puffer, ein Hintergrund-Takt
 // (nicht der Audio-Thread) misst daraus das Langzeit-Spektrum der Sprachanteile und die Tonhoehe.
 // Aus gelerntem Spektrum und Referenzkurve entsteht die Korrekturkurve, die mit einer Bank aus
-// Glockenfiltern nachgebildet wird (latenzfrei). Nur der Limiter braucht 1,5 ms Vorlauf.
+// Glockenfiltern nachgebildet wird. Alles ist latenzfrei.
 #pragma once
 #include <algorithm>
 #include <array>
@@ -202,6 +202,8 @@ struct LearnedProfile
     GridCurve curveDb {};
     float pitchHz = 0.0f;       // 0 = keine Tonhoehe erkannt
     float speechSeconds = 0.0f;
+    float loudnessLufs = -100.0f;   // integrierte Lautheit der Spur (nach Lowcut), -100 = unbekannt
+    float typicalOffsetDb = -2.5f;  // typischer Sprechpegel (Mittel der 400-ms-Bloecke in dB) minus integrierte Lautheit
     bool valid = false;
 };
 
@@ -261,6 +263,11 @@ public:
         pBuf.assign ((size_t) pLen, 0.0);
         pitches.clear();
         pitches.reserve (20000);
+        kShelf = kWeightShelf (fs);
+        kHp = kWeightHighPass (fs);
+        subLen = (int) std::lround (0.1 * fs);
+        blocks.clear();
+        blocks.reserve (40000);
         reset();
     }
 
@@ -273,7 +280,9 @@ public:
         filled = 0; sinceHop = 0; pFilled = 0; pSinceHop = 0;
         speechFrames = 0;
         pitches.clear();
-        for (auto* s : { &s1, &s2, &s3, &s4 }) s->reset();
+        for (auto* s : { &s1, &s2, &s3, &s4, &k1, &k2 }) s->reset();
+        subAcc = 0.0; subN = 0; subCount = 0; sub.fill (0.0);
+        blocks.clear();
     }
 
     // Samples (mono) einspeisen
@@ -289,6 +298,16 @@ public:
             {
                 sinceHop = 0;
                 analyseFrame();
+            }
+            // Lautheit (BS.1770): 400-ms-Bloecke im 100-ms-Raster
+            const double kw = k2.process (kHp, k1.process (kShelf, v));
+            subAcc += kw * kw;
+            if (++subN >= subLen)
+            {
+                sub[(size_t) (subCount % 4)] = subAcc / subN;
+                subAcc = 0.0; subN = 0;
+                if (++subCount >= 4 && blocks.size() < blocks.capacity())
+                    blocks.push_back ((sub[0] + sub[1] + sub[2] + sub[3]) * 0.25);
             }
             // Tonhoehe
             double b = s4.process (bp4, s3.process (bp3, s2.process (bp2, s1.process (bp1, v))));
@@ -344,6 +363,17 @@ public:
             std::nth_element (v.begin(), v.begin() + (long) (v.size() / 2), v.end());
             p.pitchHz = v[v.size() / 2];
         }
+        p.loudnessLufs = integratedLoudness (blocks);
+        if (p.loudnessLufs > -99.0f)
+        {
+            double sdb = 0; long nb = 0;
+            for (double b : blocks)
+            {
+                const double l = -0.691 + 10.0 * std::log10 (b + 1e-20);
+                if (l > p.loudnessLufs - 10.0) { sdb += l; ++nb; }
+            }
+            if (nb > 0) p.typicalOffsetDb = (float) std::clamp (sdb / nb - p.loudnessLufs, -8.0, 0.0);
+        }
         p.valid = true;
         return p;
     }
@@ -373,6 +403,19 @@ public:
         mean /= std::max (1, m);
         for (auto& v : out) v = (float) std::clamp ((double) v - mean, -60.0, 40.0);
         return out;
+    }
+
+    // Integrierte Lautheit nach BS.1770 aus Blockleistungen (absolutes Tor -70, relatives Tor -10 LU)
+    static float integratedLoudness (const std::vector<double>& blockPow)
+    {
+        auto lufs = [] (double pw) { return -0.691 + 10.0 * std::log10 (pw + 1e-20); };
+        double s = 0; long n = 0;
+        for (double b : blockPow) if (lufs (b) > -70.0) { s += b; ++n; }
+        if (n == 0) return -100.0f;
+        const double rel = lufs (s / n) - 10.0;
+        s = 0; n = 0;
+        for (double b : blockPow) if (lufs (b) > -70.0 && lufs (b) > rel) { s += b; ++n; }
+        return n > 0 ? (float) lufs (s / n) : -100.0f;
     }
 
 private:
@@ -442,6 +485,14 @@ private:
     long pFilled = 0, pSinceHop = 0;
     double pRaw = 0;
     std::vector<std::pair<float, float>> pitches;   // (Hz, Pegel dB)
+
+    Biquad kShelf, kHp;
+    BiquadState k1, k2;
+    double subAcc = 0.0;
+    int subLen = 4800, subN = 0;
+    long subCount = 0;
+    std::array<double, 4> sub {};
+    std::vector<double> blocks;
 };
 
 //==============================================================================
@@ -607,48 +658,62 @@ inline BankDesign fitBank (const GridCurve& target, double fs)
 }
 
 //==============================================================================
-//  Engine (Audio-Thread): Lowcut, Match-EQ, De-Esser, Leveler, Limiter
+//  Lautheitsaenderung durch den EQ abschaetzen (damit die Grundverstaerkung von Anfang an stimmt)
+//  Spektrum der gelernten Stimme (Leistungsdichte auf dem Log-Gitter) mit K-Gewichtung, mit und ohne Korrektur.
+//==============================================================================
+inline float eqLoudnessDeltaDb (const GridCurve& takeDb, const GridCurve& corrDb)
+{
+    const Biquad ks = kWeightShelf (48000.0), kh = kWeightHighPass (48000.0);
+    double a = 0, b = 0;
+    for (int i = 0; i < kRefGridPoints; ++i)
+    {
+        const double f = kRefGridHz[i];
+        const double k = magnitudeDb (ks, 48000.0, f) + magnitudeDb (kh, 48000.0, f);
+        const double w = std::pow (10.0, (takeDb[(size_t) i] + k) / 10.0) * f;   // f: Gitter ist logarithmisch
+        a += w * std::pow (10.0, corrDb[(size_t) i] / 10.0);
+        b += w;
+    }
+    return b > 0 ? (float) (10.0 * std::log10 (a / b)) : 0.0f;
+}
+
+//==============================================================================
+//  Engine (Audio-Thread): Lowcut, Match-EQ, De-Esser, Grundverstaerkung, Leveler. Latenzfrei.
 //==============================================================================
 struct EngineParams
 {
-    float lowcutHz = 80.0f;     // <= 20 = aus
-    float deess = 0.25f;        // 0..1, 0 = aus
-    float leveler = 0.5f;       // 0..1: wie stark kurzzeitige Lautstaerkeschwankungen ausgeglichen werden
-    float targetLufs = -23.0f;  // Ziel-Lautheit
+    float lowcutHz = 80.0f;      // <= 20 = aus
+    bool deessOn = true;
+    float deess = 0.25f;         // Staerke 0..1
+    float deessFreqHz = 5500.0f; // ab hier wirkt der De-Esser
+    bool deessListen = false;    // nur das hoeren, was der De-Esser bearbeitet
+    float leveler = 0.5f;        // 0..1 -> Regelbereich 0..+-10 dB
+    float targetLufs = -23.0f;
+    float takeLufs = -100.0f;    // gelernte Lautheit nach dem EQ, -100 = unbekannt (dann keine Grundverstaerkung)
+    float rideOffsetDb = -2.5f;  // typischer Sprechpegel relativ zur integrierten Lautheit (gelernt)
 };
 
 class Engine
 {
 public:
     static constexpr int kMaxCh = 2;
-    static constexpr double kCeilingDb = -1.2;   // Limiter-Decke (Zwischenwerte grob mitgeschaetzt -> ca. -1 dBTP)
+    static constexpr double kMaxRangeDb = 10.0;   // Leveler-Regelbereich bei 100 %
 
-    std::atomic<float> meterLevelerDb { 0.0f }, meterDeessDb { 0.0f }, meterLimiterDb { 0.0f },
-                       meterInLufs { -100.0f }, meterOutLufs { -100.0f };
+    std::atomic<float> meterRideDb { 0.0f }, meterStaticDb { 0.0f }, meterDeessDb { 0.0f },
+                       meterInLufs { -100.0f }, meterOutLufs { -100.0f }, meterOutPeakDb { -100.0f };
 
     void prepare (double sampleRate)
     {
         fs = sampleRate;
-        L = std::max (8, (int) std::lround (0.0015 * fs));
-        W = L + 3;
-        delayLen = L + 3;
-        for (auto& ch : chans) ch.delay.assign ((size_t) delayLen, 0.0);
-        dqCap = W + 1;
-        dqVal.assign ((size_t) dqCap, 1.0);
-        dqIdx.assign ((size_t) dqCap, 0);
-        envRing.assign ((size_t) L, 1.0);
         kShelf = kWeightShelf (fs);
         kHp = kWeightHighPass (fs);
-        deessHp = highPass (fs, 5000.0, 0.7071);
         for (auto& b : bank[0]) b = Biquad {};
         for (auto& b : bank[1]) b = Biquad {};
         fadeLen = std::max (1, (int) std::lround (0.03 * fs));
         loudCoef = 1.0 - std::exp (-1.0 / (0.4 * fs));
-        subLen = (int) std::lround (0.1 * fs);
         envAtt = 1.0 - std::exp (-1.0 / (0.0005 * fs));
         envRel = 1.0 - std::exp (-1.0 / (0.05 * fs));
-        limRel = 1.0 - std::exp (-1.0 / (0.08 * fs));
         lastLowcut = -1.0f;
+        lastDeessFreq = -1.0f;
         reset();
     }
 
@@ -659,25 +724,17 @@ public:
             for (auto& s : ch.lc) s.reset();
             for (auto& s : ch.eq[0]) s.reset();
             for (auto& s : ch.eq[1]) s.reset();
-            ch.dh.reset(); ch.ds.reset(); ch.k1.reset(); ch.k2.reset();
-            std::fill (ch.delay.begin(), ch.delay.end(), 0.0);
-            ch.h1 = ch.h2 = ch.h3 = 0.0;
+            for (auto* s : { &ch.dh, &ch.ds, &ch.k1, &ch.k2, &ch.o1, &ch.o2 }) s->reset();
         }
-        dqHead = 0; dqCount = 0; sampleIdx = 0;
-        std::fill (envRing.begin(), envRing.end(), 1.0);
-        envSum = (double) L;
-        limEnv = 1.0;
-        pos = 0; envPos = 0;
         fading = false; fadePos = 0;
         hiPow = fullPow = 0.0; deessGain = 1.0; shelfDb = 0.0; shelf = Biquad {};
-        msK = 0.0; kpAcc = blockAcc = 0.0; blockN = 0; subPos = 0; subCount = 0; sub.fill (0.0);
-        histW.fill (0.0); histP.fill (0.0); integratedLufs = -70.0; gatedBlocks = 0.0; meanDb = -70.0; openTime = 0.0; haveIntegrated = false;
-        gFastDb = 0.0; gTotalDb = 0.0; levelerGain = 1.0;
+        msK = outMs = 0.0;
+        ride1 = ride2 = 0.0;
+        staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
         ctl = 0;
-        outMs = 0.0;
     }
 
-    int latencySamples() const { return L + 2; }
+    int latencySamples() const { return 0; }
 
     void setParams (const EngineParams& p)
     {
@@ -691,6 +748,12 @@ public:
                 lc[0] = highPass (fs, p.lowcutHz, 0.5412);   // Butterworth 4. Ordnung
                 lc[1] = highPass (fs, p.lowcutHz, 1.3066);
             }
+        }
+        if (p.deessFreqHz != lastDeessFreq)
+        {
+            lastDeessFreq = p.deessFreqHz;
+            deessHp = highPass (fs, std::min ((double) p.deessFreqHz, 0.45 * fs), 0.7071);
+            shelfDb = 1.0;   // Shelf beim naechsten Takt neu berechnen
         }
     }
 
@@ -711,15 +774,17 @@ public:
         numCh = std::min (numCh, kMaxCh);
         if (numCh <= 0) return;
         const double invCh = 1.0 / numCh;
-        const double ceiling = std::pow (10.0, kCeilingDb / 20.0);
-        // De-Esser: Schwelle (Anteil der Hoehen ueber 5 kHz an der Gesamtleistung) und maximale Absenkung
-        const double dAmt = std::clamp ((double) params.deess, 0.0, 1.0);
+        // De-Esser: Schwelle (Anteil der Hoehen ueber der Frequenz an der Gesamtleistung) und maximale Absenkung
+        const double dAmt = params.deessOn ? std::clamp ((double) params.deess, 0.0, 1.0) : 0.0;
         const double dThr = -6.0 - 10.0 * dAmt;
         const double dMax = 12.0 * dAmt;
-        double maxLev = 0, maxDe = 0, maxLim = 0;
+        double maxDe = 0, peak = 0;
 
         for (int i = 0; i < n; ++i)
         {
+            if (ctl == 0) controlTick();
+            if (++ctl >= 16) ctl = 0;
+
             double y[kMaxCh] = {}, hi[kMaxCh] = {};
             double tapSum = 0, hiP = 0, fullP = 0;
             const double a = fading ? (double) fadePos / fadeLen : 0.0;
@@ -745,196 +810,111 @@ public:
             if (tap != nullptr) tap[i] = (float) (tapSum * invCh);
             if (fading && ++fadePos >= fadeLen) { cur = 1 - cur; fading = false; }
 
-            // De-Esser (Kanaele gekoppelt)
+            // De-Esser (Kanaele gekoppelt): erkennt Zischlaute am Hoehenanteil, senkt per Hoehen-Shelf ab
             hiP *= invCh; fullP *= invCh;
             hiPow += (hiP > hiPow ? envAtt : envRel) * (hiP - hiPow);
             fullPow += (fullP > fullPow ? envAtt : envRel) * (fullP - fullPow);
             double targetGain = 1.0;
-            if (dAmt > 0.0 && hiPow > 1e-9)   // Hoehenanteil ueber -90 dBFS
+            if (dAmt > 0.0 && hiPow > 1e-9)
             {
                 const double ratioDb = 10.0 * std::log10 (hiPow / (fullPow + 1e-20));
                 if (ratioDb > dThr)
-                {
-                    const double red = std::min (dMax, (ratioDb - dThr) * (2.0 / 3.0));
-                    targetGain = std::pow (10.0, -red / 20.0);
-                }
+                    targetGain = std::pow (10.0, -std::min (dMax, (ratioDb - dThr) * (2.0 / 3.0)) / 20.0);
             }
             deessGain += (targetGain < deessGain ? envAtt : envRel) * (targetGain - deessGain);
             maxDe = std::max (maxDe, -20.0 * std::log10 (deessGain));
-            // Absenkung als Hoehen-Shelf ab 4,5 kHz (phasenrichtig), Koeffizienten im 16er-Takt nachfuehren
-            if ((ctl & 15) == 0)
+            if (ctl == 0)
             {
                 const double redDb = 20.0 * std::log10 (deessGain);
-                if (std::abs (redDb - shelfDb) > 0.05) { shelfDb = redDb; shelf = highShelf (fs, 4500.0, shelfDb); }
-            }
-
-            // K-gewichtete Lautheit vor dem Leveler (Mittel der Kanaele = Monobezug wie bei einer Sprachdatei)
-            double kp = 0;
-            for (int c = 0; c < numCh; ++c)
-            {
-                auto& ch = chans[(size_t) c];
-                if (shelfDb < -0.01) y[c] = ch.ds.process (shelf, y[c]);
-                else ch.ds.process (shelf, y[c]);   // Zustand mitlaufen lassen
-                const double k = ch.k2.process (kHp, ch.k1.process (kShelf, y[c]));
-                kp += k * k;
-            }
-            msK += loudCoef * (kp * invCh - msK);
-            kpAcc += kp * invCh;
-
-            if (++ctl >= 16) { ctl = 0; updateLeveler(); }
-
-            // Limiter mit Vorlauf
-            double peak = 0;
-            for (int c = 0; c < numCh; ++c)
-            {
-                auto& ch = chans[(size_t) c];
-                const double v = y[c] * levelerGain;
-                ch.delay[(size_t) pos] = v;
-                // Zwischenwerte zwischen den beiden vorherigen Samples (kubisch) mitschaetzen
-                const double p0 = ch.h3, p1 = ch.h2, p2 = ch.h1, p3 = v;
-                double pk = std::max (std::abs (p2), std::abs (p3));
-                for (double t : { 0.25, 0.5, 0.75 })
+                if (std::abs (redDb - shelfDb) > 0.05)
                 {
-                    const double m = p1 + 0.5 * t * (p2 - p0 + t * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3 + t * (3.0 * (p1 - p2) + p3 - p0)));
-                    pk = std::max (pk, std::abs (m));
+                    shelfDb = redDb;
+                    shelf = highShelf (fs, std::min ((double) params.deessFreqHz * 0.85, 0.42 * fs), shelfDb);
                 }
-                ch.h3 = ch.h2; ch.h2 = ch.h1; ch.h1 = v;
-                peak = std::max (peak, pk);
             }
-            // gleitendes Minimum ueber W Samples (monotone Warteschlange, O(1) im Mittel)
-            const double rq = peak > ceiling ? ceiling / peak : 1.0;
-            ++sampleIdx;
-            while (dqCount > 0 && dqVal[(size_t) ((dqHead + dqCount - 1) % dqCap)] >= rq) --dqCount;
-            dqVal[(size_t) ((dqHead + dqCount) % dqCap)] = rq;
-            dqIdx[(size_t) ((dqHead + dqCount) % dqCap)] = sampleIdx;
-            ++dqCount;
-            while (dqIdx[(size_t) dqHead] <= sampleIdx - W) { dqHead = (dqHead + 1) % dqCap; --dqCount; }
-            const double req = dqVal[(size_t) dqHead];
-            limEnv = req < limEnv ? req : limEnv + limRel * (req - limEnv);
-            envSum += limEnv - envRing[(size_t) envPos];
-            envRing[(size_t) envPos] = limEnv;
-            envPos = (envPos + 1) % L;
-            const double g = std::min (1.0, envSum / L);
-            maxLim = std::max (maxLim, -20.0 * std::log10 (std::max (g, 1e-6)));
 
-            const int rd = (pos + 1) % delayLen;   // aeltester Wert = L+2 Samples verzoegert
-            double om = 0;
+            const double gStatic = std::pow (10.0, staticDb / 20.0);
+            double kpIn = 0, kpOut = 0;
             for (int c = 0; c < numCh; ++c)
             {
-                const double o = chans[(size_t) c].delay[(size_t) rd] * g;
+                auto& ch = chans[(size_t) c];
+                const double d = ch.ds.process (shelf, y[c]);
+                const double v = (params.deessListen ? hi[c] : d) * gStatic;
+                // Messung fuer den Leveler: nach der Grundverstaerkung, vor dem Leveler
+                const double k = ch.k2.process (kHp, ch.k1.process (kShelf, d * gStatic));
+                kpIn += k * k;
+                const double o = params.deessListen ? v : v * gainRide;
+                const double ko = ch.o2.process (kHp, ch.o1.process (kShelf, o));
+                kpOut += ko * ko;
                 io[c][i] = (float) o;
-                om += o * o;
+                peak = std::max (peak, std::abs (o));
             }
-            outMs += loudCoef * (om * invCh - outMs);
-            pos = rd;
-            maxLev = std::max (maxLev, std::abs (gTotalDb));
+            msK += loudCoef * (kpIn * invCh - msK);
+            outMs += loudCoef * (kpOut * invCh - outMs);
         }
-        meterLevelerDb.store ((float) gTotalDb);
+        meterRideDb.store ((float) ride2);
+        meterStaticDb.store ((float) staticDb);
         meterDeessDb.store ((float) maxDe);
-        meterLimiterDb.store ((float) maxLim);
         meterInLufs.store ((float) (-0.691 + 10.0 * std::log10 (msK + 1e-20)));
         meterOutLufs.store ((float) (-0.691 + 10.0 * std::log10 (outMs + 1e-20)));
+        meterOutPeakDb.store ((float) (20.0 * std::log10 (peak + 1e-12)));
     }
 
 private:
-    // Leveler in zwei Stufen:
-    //  1) langsamer Normalisierer (ca. 8 s): bringt die mittlere Lautheit immer aufs Ziel (wie das Pre-Flight-Tool)
-    //  2) schnellerer Ausgleich (ca. 0,5-1 s), Staerke einstellbar: gleicht Schwankungen innerhalb der Saetze an
-    // In Pausen (unter Ziel - 25 LU) wird nichts nachgeregelt, damit Rauschen nicht hochgezogen wird.
-    // Integrierte Lautheit nach BS.1770, laufend: 400-ms-Bloecke im 100-ms-Raster, absolutes Tor -70 LUFS,
-    // relatives Tor -10 LU. Aeltere Bloecke werden langsam vergessen (ca. 20 s), damit der Pegel auf langen
-    // Spuren mitwandert. Ohne Vergessen waere es exakt die integrierte Lautheit einer Datei.
-    static constexpr int kHistBins = 300;          // 0,25-LU-Schritte von -70 bis +5 LUFS
-    void addLoudnessBlock (double blockPow)
+    double desiredStaticDb() const
     {
-        const double lb = -0.691 + 10.0 * std::log10 (blockPow + 1e-20);
-        const double decay = std::exp (-0.1 / 20.0);
-        for (int b = 0; b < kHistBins; ++b) { histW[(size_t) b] *= decay; histP[(size_t) b] *= decay; }
-        if (lb <= -70.0) return;
-        const int bin = std::clamp ((int) ((lb + 70.0) * 4.0), 0, kHistBins - 1);
-        histW[(size_t) bin] += 1.0;
-        histP[(size_t) bin] += blockPow;
-        double w = 0, pw = 0;
-        for (int b = 0; b < kHistBins; ++b) { w += histW[(size_t) b]; pw += histP[(size_t) b]; }
-        if (w < 1e-9) return;
-        const double relThr = -0.691 + 10.0 * std::log10 (pw / w) - 10.0;
-        const int from = std::clamp ((int) std::ceil ((relThr + 70.0) * 4.0), 0, kHistBins);
-        w = 0; pw = 0;
-        for (int b = from; b < kHistBins; ++b) { w += histW[(size_t) b]; pw += histP[(size_t) b]; }
-        if (w < 1e-9) return;
-        integratedLufs = -0.691 + 10.0 * std::log10 (pw / w);
-        gatedBlocks += 1.0;
-        haveIntegrated = gatedBlocks >= 3.0;   // nach 300 ms Sprache
+        if (params.takeLufs <= -99.0f) return 0.0;
+        return std::clamp ((double) params.targetLufs - params.takeLufs, -30.0, 30.0);
     }
 
-    // Leveler in zwei Stufen:
-    //  1) Normalisierer: bringt die integrierte Lautheit (s. o.) aufs Ziel, wie das Pre-Flight-Tool
-    //  2) Ausgleich innerhalb der Saetze (ca. 0,5-1 s), Staerke einstellbar
-    // In Pausen (10 LU unter dem Mittel) wird nichts nachgeregelt, damit Rauschen nicht hochgezogen wird.
-    void updateLeveler()
+    // Steuertakt alle 16 Samples: Grundverstaerkung und Leveler
+    //  - Grundverstaerkung: aus der gelernten Lautheit, steht ab dem ersten Sample (keine Spruenge beim Starten)
+    //  - Leveler: faehrt sanft innerhalb eines begrenzten Bereichs (wie ein Fader), in Pausen haelt er still
+    void controlTick()
     {
         const double dt = 16.0 / fs;
-        blockAcc += kpAcc; kpAcc = 0.0; blockN += 16;
-        if (blockN >= subLen)
-        {
-            sub[(size_t) subPos] = blockAcc / blockN;
-            subPos = (subPos + 1) % 4;
-            blockAcc = 0.0; blockN = 0;
-            if (++subCount >= 4) addLoudnessBlock ((sub[0] + sub[1] + sub[2] + sub[3]) * 0.25);
-        }
+        staticDb += (1.0 - std::exp (-dt / 0.05)) * (desiredStaticDb() - staticDb);   // nur bei Reglerbewegungen
 
+        const double range = kMaxRangeDb * std::clamp ((double) params.leveler, 0.0, 1.0);
         const double lufs = -0.691 + 10.0 * std::log10 (msK + 1e-20);
-        if (haveIntegrated && lufs > std::max (integratedLufs - 10.0, -60.0))
+        // Bezug: der typische Sprechpegel bei Ziel-Lautheit. So hebt der Leveler leise Stellen an und senkt laute ab,
+        // ohne die Gesamtlautheit zu veraendern.
+        const double target = params.targetLufs + params.rideOffsetDb;
+        if (range <= 0.01)
+            ride1 += (1.0 - std::exp (-dt / 0.5)) * (0.0 - ride1);
+        else if (lufs > target - 16.0)   // Sprache (Pausen und Atmer liegen darunter)
         {
-            // Bezug ist der Mittelwert in dB (nicht in Leistung): so hebt der Ausgleich die Gesamtlautheit nicht an
-            openTime += dt;
-            meanDb += (dt / std::min (openTime, 20.0)) * (lufs - meanDb);
-            const double desiredFast = std::clamp ((meanDb - lufs) * (double) params.leveler, -9.0, 9.0);
-            const double tau = desiredFast > gFastDb ? 1.0 : 0.5;
-            gFastDb += (1.0 - std::exp (-dt / tau)) * (desiredFast - gFastDb);
+            const double desired = std::clamp (0.7 * (target - lufs), -range, range);
+            const double tau = desired > ride1 ? 1.5 : 0.8;   // anheben langsam, absenken etwas schneller
+            ride1 += (1.0 - std::exp (-dt / tau)) * (desired - ride1);
         }
-        const double slowGain = haveIntegrated ? std::clamp ((double) params.targetLufs - integratedLufs, -18.0, 18.0) : 0.0;
-        const double desired = std::clamp (slowGain + gFastDb, -18.0, 18.0);
-        gTotalDb += (1.0 - std::exp (-dt / 0.2)) * (desired - gTotalDb);   // letzte Glaettung gegen Spruenge
-        levelerGain = std::pow (10.0, gTotalDb / 20.0);
+        ride1 = std::clamp (ride1, -range, range);
+        ride2 += (1.0 - std::exp (-dt / 0.3)) * (ride1 - ride2);   // zweite Glaettung: weiche Uebergaenge ohne Knick
+        gainRide = std::pow (10.0, ride2 / 20.0);
     }
 
     struct Chan
     {
         std::array<BiquadState, 2> lc;
         std::array<std::array<BiquadState, kBands>, 2> eq;
-        BiquadState dh, ds, k1, k2;
-        std::vector<double> delay;
-        double h1 = 0, h2 = 0, h3 = 0;
+        BiquadState dh, ds, k1, k2, o1, o2;
     };
 
     double fs = 48000.0;
     EngineParams params;
     std::array<Chan, kMaxCh> chans;
-    Biquad lc[2], kShelf, kHp, deessHp;
+    Biquad lc[2], kShelf, kHp, deessHp, shelf;
     bool lcOn = true;
-    float lastLowcut = -1.0f;
+    float lastLowcut = -1.0f, lastDeessFreq = -1.0f;
     std::array<std::array<Biquad, kBands>, 2> bank {};
     int cur = 0;
     bool fading = false;
     int fadePos = 0, fadeLen = 1440;
 
     double envAtt = 0, envRel = 0, hiPow = 0, fullPow = 0, deessGain = 1, shelfDb = 0;
-    Biquad shelf;
-    double loudCoef = 0, msK = 0, outMs = 0, gFastDb = 0, gTotalDb = 0, levelerGain = 1;
-    double kpAcc = 0, blockAcc = 0, integratedLufs = -70, gatedBlocks = 0, meanDb = -70, openTime = 0;
-    int blockN = 0, subLen = 4800, subPos = 0, subCount = 0;
-    bool haveIntegrated = false;
-    std::array<double, 4> sub {};
-    std::array<double, kHistBins> histW {}, histP {};
+    double loudCoef = 0, msK = 0, outMs = 0;
+    double staticDb = 0, ride1 = 0, ride2 = 0, gainRide = 1;
     int ctl = 0;
-
-    int L = 72, W = 75, delayLen = 75, pos = 0, envPos = 0;
-    int dqCap = 76, dqHead = 0, dqCount = 0;
-    long long sampleIdx = 0;
-    std::vector<double> dqVal, envRing;
-    std::vector<long long> dqIdx;
-    double envSum = 72, limEnv = 1, limRel = 0;
 };
 
 } // namespace dop

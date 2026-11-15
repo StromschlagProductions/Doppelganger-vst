@@ -60,6 +60,7 @@ public:
         int effectiveRegister = dop::kMittel;
         float fitErrorDb = 0.0f;
         juce::String message;          // letzte Meldung (z. B. "zu wenig Sprache")
+        bool needsRelearnForLoudness = false;   // Profil aus v0.2 ohne Lautheitsmessung
     };
     DisplayInfo getDisplayInfo() const;
 
@@ -99,6 +100,10 @@ private:
     std::atomic<float>* pLowcut = nullptr;
     std::atomic<float>* pDeess = nullptr;
     std::atomic<float>* pLeveler = nullptr;
+    std::atomic<float>* pDeessOn = nullptr;
+    std::atomic<float>* pDeessFreq = nullptr;
+    std::atomic<float>* pDeessListen = nullptr;
+    std::atomic<float> takeLufs { -100.0f }, rideOffset { -2.5f };
     std::atomic<float>* pTarget = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DoppelgangerProcessor)
