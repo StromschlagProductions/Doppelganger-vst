@@ -78,5 +78,8 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 
 ## Bauen und testen
 
-- Windows-VST3: wird bei jeder Änderung automatisch von GitHub Actions gebaut, mit pluginval geprüft und als Release veröffentlicht.
-- Engine-Test ohne JUCE: `g++ -std=c++17 -O2 -o test_engine tests/test_engine.cpp`
+- Windows-VST3: Pull Requests werden mit Regressionstests und pluginval geprüft. Nur ein Push auf `main` erzeugt weiterhin ein Release; PRs und manuelle Prüfläufe veröffentlichen keines.
+- Automatische DSP-/Transporttests ohne JUCE: `cmake -S . -B build/tests -DDOPPELGANGER_TESTS=ON`, danach `cmake --build build/tests` und `ctest --test-dir build/tests --output-on-failure`.
+- Prozessor-/State-/Editor-Tests zusammen mit dem VST3: `-DDOPPELGANGER_PLUGIN_TESTS=ON`.
+- Die bisherigen Dateitests `test_engine` und `test_learn` werden mitgebaut und mit einem synthetischen Signal automatisch ausgeführt.
+- Architektur, Sanitizer-Aufrufe und Benchmark: [technische Prüfung](docs/TECHNICAL_REVIEW.md).

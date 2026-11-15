@@ -6,11 +6,17 @@
 
 int main (int argc, char** argv)
 {
+    if (argc < 3) { std::fprintf (stderr, "usage: test_learn IN.f32 SAMPLERATE\n"); return 1; }
     const double fs = std::atof (argv[2]);
+    if (! std::isfinite (fs) || fs < 8000 || fs > 768000) return 1;
     FILE* f = std::fopen (argv[1], "rb");
-    std::fseek (f, 0, SEEK_END); const long n = std::ftell (f) / 4; std::fseek (f, 0, SEEK_SET);
+    if (f == nullptr) { std::perror ("input"); return 1; }
+    if (std::fseek (f, 0, SEEK_END) != 0) { std::fclose (f); return 1; } const long bytes = std::ftell (f);
+    if (bytes <= 0 || bytes % 4 != 0) { std::fclose (f); return 1; }
+    const long n = bytes / 4; std::fseek (f, 0, SEEK_SET);
     std::vector<float> x ((size_t) n);
-    if (std::fread (x.data(), 4, (size_t) n, f) != (size_t) n) return 1;
+    if (std::fread (x.data(), 4, (size_t) n, f) != (size_t) n) { std::fclose (f); return 1; }
+    std::fclose (f);
     dop::Learner L; L.prepare (fs);
     dop::ConvergenceTracker t;
     float next = 10.0f; bool done = false;

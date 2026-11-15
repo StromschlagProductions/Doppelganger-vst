@@ -10,6 +10,7 @@ int main (int argc, char** argv)
 {
     if (argc < 4) { std::fprintf (stderr, "usage\n"); return 1; }
     const double fs = std::atof (argv[3]);
+    if (! std::isfinite (fs) || fs < 8000 || fs > 768000) return 1;
     const float amount = argc > 4 ? (float) std::atof (argv[4]) : 0.6f;
     const std::string regArg = argc > 5 ? argv[5] : "auto";
     dop::EngineParams p;
@@ -20,11 +21,14 @@ int main (int argc, char** argv)
     if (argc > 10) p.deessFreqHz = (float) std::atof (argv[10]);
 
     FILE* f = std::fopen (argv[1], "rb");
-    std::fseek (f, 0, SEEK_END);
-    const long n = std::ftell (f) / 4;
+    if (f == nullptr) { std::perror ("input"); return 1; }
+    if (std::fseek (f, 0, SEEK_END) != 0) { std::fclose (f); return 1; }
+    const long bytes = std::ftell (f);
+    if (bytes <= 0 || bytes % 4 != 0) { std::fclose (f); return 1; }
+    const long n = bytes / 4;
     std::fseek (f, 0, SEEK_SET);
     std::vector<float> x ((size_t) n);
-    if (std::fread (x.data(), 4, (size_t) n, f) != (size_t) n) return 1;
+    if (std::fread (x.data(), 4, (size_t) n, f) != (size_t) n) { std::fclose (f); return 1; }
     std::fclose (f);
 
     dop::Engine eng;
@@ -62,6 +66,7 @@ int main (int argc, char** argv)
     eng.setBank (bank.coeffs);
     std::vector<float> y (x);
     FILE* rf = std::fopen ((std::string (argv[2]) + ".ride.txt").c_str(), "w");
+    if (rf == nullptr) return 1;
     const int blk = (int) (fs / 100);
     for (long i = 0; i < n; i += blk)
     {
@@ -73,7 +78,7 @@ int main (int argc, char** argv)
     std::fclose (rf);
     std::printf ("grundverstaerkung %.1f dB, latenz %d\n", eng.meterStaticDb.load(), eng.latencySamples());
     FILE* o = std::fopen (argv[2], "wb");
-    std::fwrite (y.data(), 4, (size_t) n, o);
-    std::fclose (o);
-    return 0;
+    if (o == nullptr) return 1;
+    const bool written = std::fwrite (y.data(), 4, (size_t) n, o) == (size_t) n;
+    return std::fclose (o) == 0 && written ? 0 : 1;
 }
