@@ -4,6 +4,10 @@ VST3-Insert-Effekt für Hörspiel-Produktion. Er gleicht die Klangfarbe einer Sp
 an und bringt sie gleich auf die richtige Lautheit: Mikrofon und Raum werden auf den Standard des Projekts gebracht,
 ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
+**⬇ Download (Windows · VST3 · Mono/Stereo):** https://github.com/StromschlagProductions/Doppelganger-vst/releases/latest
+
+Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
+
 **Status:** Entwicklung (Version 0.2). Die Klangfunktion ist fertig und getestet, die Oberfläche ist noch eine
 schlichte Testversion. Das endgültige Design folgt.
 
@@ -49,5 +53,5 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 
 ## Bauen und testen
 
-- Windows-VST3: GitHub Actions → „Windows-VST3 bauen“ → *Run workflow* (baut und prüft mit pluginval).
+- Windows-VST3: wird bei jeder Änderung automatisch von GitHub Actions gebaut, mit pluginval geprüft und als Release veröffentlicht.
 - Engine-Test ohne JUCE: `g++ -std=c++17 -O2 -o test_engine tests/test_engine.cpp`
