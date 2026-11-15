@@ -110,6 +110,11 @@ void concurrentHostAndAudio()
     juce::MemoryBlock state; p->getStateInformation (state);
     std::atomic<bool> stop { false };
     std::thread audio ([&] { juce::AudioBuffer<float> b (2, 512); while (! stop.load()) { for (int c=0;c<2;++c) for (int i=0;i<512;++i) b.setSample(c,i,(float)(0.1*std::sin(i*.1))); process (*p, b); } });
+    std::thread secondAudio ([&]
+    {
+        juce::AudioBuffer<float> b (2, 31);
+        while (! stop.load()) { b.clear(); process (*other, b); }
+    });
     std::thread host ([&] { for (int i = 0; i < 80; ++i) { juce::MemoryBlock copy; p->getStateInformation(copy); p->setStateInformation(state.getData(), (int)state.getSize()); } });
     dop::GridCurve in {}, out {};
     for (int i = 0; i < 100; ++i)
@@ -119,7 +124,7 @@ void concurrentHostAndAudio()
         p->setUiProperty ("theme", i % 2);
         CHECK (! other->isLearning() && ! other->getDisplayInfo().profile.valid);
     }
-    host.join(); stop = true; audio.join();
+    host.join(); stop = true; audio.join(); secondAudio.join();
 }
 int main()
 {

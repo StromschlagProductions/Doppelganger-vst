@@ -99,6 +99,30 @@ void engineTests()
         e.process (nullptr, 0, 0, nullptr);
     }
 }
+void transitionTests()
+{
+    dop::Engine uninterrupted, repeated, retargeted;
+    auto boost = dop::flatBank().coeffs, cut = boost;
+    boost[8] = dop::peaking (48000, 1000, 2.1, 6);
+    cut[8] = dop::peaking (48000, 1000, 2.1, -6);
+    for (auto* e : { &uninterrupted, &repeated, &retargeted })
+    { e->prepare (48000); e->setParams (bypass()); e->setBank (boost); }
+    double inputEnergy = 0, outputEnergy = 0;
+    for (int i = 0; i < 12000; ++i)
+    {
+        const float input = (float) (0.1 * std::sin (2 * dop::kPi * 1000 * i / 48000));
+        float a = input, b = input, c = input;
+        if (i == 240) { repeated.setBank (boost); retargeted.setBank (cut); }
+        float* pa[] = { &a }; float* pb[] = { &b }; float* pc[] = { &c };
+        uninterrupted.process (pa, 1, 1, nullptr);
+        repeated.process (pb, 1, 1, nullptr);
+        retargeted.process (pc, 1, 1, nullptr);
+        CHECK (a == b); // repeating the same requested bank must never interrupt audio
+        if (i < 1440) CHECK (a == c); // a new target cannot jump out of the ongoing 30-ms fade
+        if (i >= 6000) { inputEnergy += (double) input * input; outputEnergy += (double) c * c; }
+    }
+    CHECK (std::abs (10 * std::log10 (outputEnergy / inputEnergy) + 6) < 0.01);
+}
 void learningTests()
 {
     for (double fs : { 22050., 44100., 48000., 96000., 192000. })
@@ -121,4 +145,4 @@ void learningTests()
         p.curveDb[0] = std::numeric_limits<float>::quiet_NaN(); CHECK (! dop::isValidProfile (p));
     }
 }
-int main() { spectrumTests(); engineTests(); learningTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); std::puts ("DSP, FFT and learning regressions passed"); }
