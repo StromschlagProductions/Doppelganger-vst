@@ -11,6 +11,12 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(DOPPELGANGER_JUCE_PATH "" CACHE PATH "Lokaler JUCE-Ordner (leer = automatisch laden)")
 set(DOPPELGANGER_FORMATS "VST3" CACHE STRING "Plugin-Formate")
+option(DOPPELGANGER_TESTS "Engine-Test (ohne JUCE) mitbauen" OFF)
+
+if(DOPPELGANGER_TESTS)
+    add_executable(test_engine tests/test_engine.cpp)
+    return()
+endif()
 
 if(DOPPELGANGER_JUCE_PATH)
     add_subdirectory(${DOPPELGANGER_JUCE_PATH} JUCE)

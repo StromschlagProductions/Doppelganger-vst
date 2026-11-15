@@ -47,33 +47,35 @@ def ltas_db(x):
     return freqs, 10 * np.log10(power + 1e-20)
 
 
-def smooth_log(freqs, db, sigma_oct=1/6):
-    # Glättung über Oktaven, damit die Kurve das Klangbild zeigt und nicht einzelne Peaks
-    logf = np.log2(np.maximum(freqs, 1.0))
-    out = np.empty_like(db)
-    for i, f in enumerate(logf):
-        w = np.exp(-0.5 * ((logf - f) / sigma_oct) ** 2)
-        out[i] = np.sum(w * db) / np.sum(w)
+def smooth_on_grid(freqs, db, sigma_oct=1/6):
+    # Glättung über 1/6 Oktave, direkt an den Gitterpunkten ausgewertet (identisch im Plugin)
+    f = freqs[1:]
+    d = db[1:]
+    logf = np.log2(f)
+    out = np.empty(len(GRID_HZ))
+    for i, g in enumerate(np.log2(GRID_HZ)):
+        w = np.exp(-0.5 * ((logf - g) / sigma_oct) ** 2)
+        out[i] = np.sum(w * d) / np.sum(w)
     return out
 
 
 def bandwidth_hz(freqs, db):
-    # Höchste Frequenz, bei der die Referenz noch mindestens 50 dB unter ihrem Mittelpegel (1–8 kHz) liegt
-    ref = np.mean(db[(freqs >= 1000) & (freqs <= 8000)])
-    above = np.where(db > ref - 50)[0]
-    return float(freqs[above[-1]]) if len(above) else 0.0
+    # Wie im Pre-Flight-Tool: Medianpegel 7-10 kHz, letzte Frequenz über 10 kHz, die höchstens 25 dB darunter liegt
+    mid = (freqs >= 7000.0) & (freqs <= 10000.0)
+    level = np.median(db[mid])
+    above = np.where((freqs > 10000.0) & (db > level - 25.0))[0]
+    return float(freqs[above[-1]]) if len(above) else 10000.0
 
 
 def curve_on_grid(path):
     x = load_mono_48k(path)
     freqs, db = ltas_db(x)
-    db = smooth_log(freqs, db)
     bw = bandwidth_hz(freqs, db)
-    grid_db = np.interp(np.log2(GRID_HZ), np.log2(np.maximum(freqs, 1.0)), db)
+    grid_db = smooth_on_grid(freqs, db)
     band = (GRID_HZ >= 100) & (GRID_HZ <= 8000)
     grid_db = grid_db - np.mean(grid_db[band])
     # Extrembereiche (sehr tief, über der Codec-Grenze) sind nur Rauschboden: begrenzen
-    grid_db = np.clip(grid_db, -40.0, 20.0)
+    grid_db = np.clip(grid_db, -60.0, 40.0)
     return grid_db, bw
 
 
@@ -107,8 +109,9 @@ def main():
             sys.exit(f"Unbekannte Stimmlage: {reg}")
         curve, bw = curve_on_grid(path)
         cutoffs[reg] = bw
-        out.append(f"// Quelle: {os.path.basename(path)}, Bandbreitengrenze ca. {bw:.0f} Hz")
+        out.append(f"// Quelle: {os.path.basename(path)}")
         out.append(fmt(names[reg], curve))
+        out.append(f"inline constexpr float {names[reg].replace('Db', 'CutoffHz')} = {bw:.1f}f;   // Bandbreitengrenze der Referenz\n")
     out.append("} // namespace dop")
     dst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Source", "ReferenceCurves.h")
     with open(dst, "w", encoding="utf-8") as f:
