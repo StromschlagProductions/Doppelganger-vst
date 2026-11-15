@@ -1,0 +1,32 @@
+name: DSP and memory safety
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure ASan and UBSan
+        run: cmake -S . -B build -DDOPPELGANGER_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDOPPELGANGER_SANITIZER=address,undefined
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+  transport-tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure TSan
+        run: cmake -S . -B build -DDOPPELGANGER_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDOPPELGANGER_SANITIZER=thread
+      - name: Build transport stress test
+        run: cmake --build build --target test_transport --parallel 2
+      - name: Test concurrent transport
+        run: ctest --test-dir build -R concurrent_transport --output-on-failure

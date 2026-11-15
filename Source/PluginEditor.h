@@ -89,6 +89,7 @@ private:
     int deessHistPos = 0;
     float deessCurDb = 0.0f, deessHoldDb = 0.0f;
     bool liveHasData = false;
+    std::array<float, 4> shownMeters {};
 
     DoppelgangerProcessor::DisplayInfo shown;
     juce::String statusText, headline;

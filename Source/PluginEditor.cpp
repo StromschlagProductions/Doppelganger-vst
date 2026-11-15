@@ -98,7 +98,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
         c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
 
     logo = juce::ImageCache::getFromMemory (BinaryData::logo_png, BinaryData::logo_pngSize);
-    theme = (int) proc.apvts.state.getProperty (kThemeProp, 0) == 1 ? lightTheme() : darkTheme();
+    theme = (int) proc.getUiProperty (kThemeProp, 0) == 1 ? lightTheme() : darkTheme();
     setLookAndFeel (&look);
 
     learnButton.onClick = [this]
@@ -142,7 +142,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     themeButton.onClick = [this]
     {
         theme = theme.dark ? lightTheme() : darkTheme();
-        proc.apvts.state.setProperty (kThemeProp, theme.dark ? 0 : 1, nullptr);
+        proc.setUiProperty (kThemeProp, theme.dark ? 0 : 1);
         applyTheme();
     };
     content.addAndMakeVisible (themeButton);
@@ -160,8 +160,8 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     applyTheme();
 
     const int startW = juce::roundToInt (kBaseW * kStartScale), startH = juce::roundToInt (kBaseH * kStartScale);
-    const int savedW = (int) proc.apvts.state.getProperty (kUiWProp, startW);
-    const int savedH = (int) proc.apvts.state.getProperty (kUiHProp, startH);
+    const int savedW = (int) proc.getUiProperty (kUiWProp, startW);
+    const int savedH = (int) proc.getUiProperty (kUiHProp, startH);
     setSize (juce::jlimit (kBaseW / 2, kBaseW * 3, savedW), juce::jlimit (kBaseH / 2, kBaseH * 3, savedH));
     sizeReady = true;
     timerCallback();
@@ -171,6 +171,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
 DoppelgangerEditor::~DoppelgangerEditor()
 {
     stopTimer();
+    proc.setLiveSpectrumEnabled (false);
     setLookAndFeel (nullptr);
 }
 
@@ -201,6 +202,19 @@ void DoppelgangerEditor::updateLearnButton()
 
 void DoppelgangerEditor::timerCallback()
 {
+    const bool visible = isShowing();
+    proc.setLiveSpectrumEnabled (visible);
+    const int interval = visible ? 40 : 200;
+    if (getTimerInterval() != interval) startTimer (interval);
+    if (! visible) return;
+    const auto oldHeadline = headline, oldStatus = statusText;
+    const auto oldCorrection = shown.correction;
+    const auto oldCurve = shown.profile.curveDb;
+    const bool oldValid = shown.profile.valid;
+    const int oldRegister = shown.effectiveRegister;
+    const auto oldHist = deessHist;
+    const float oldHold = deessHoldDb, oldAlpha = liveAlpha;
+
     shown = proc.getDisplayInfo();
     updateLearnButton();
 
@@ -238,7 +252,8 @@ void DoppelgangerEditor::timerCallback()
 
     // Live-Spektrum: schnell hoch, etwas traeger runter; in Pausen langsam ausblenden
     dop::GridCurve li {}, lo {};
-    if (proc.getLiveSpectrum (li, lo))
+    const bool fresh = proc.getLiveSpectrum (li, lo);
+    if (fresh)
     {
         const float a = liveHasData ? 0.35f : 1.0f;
         for (size_t i = 0; i < li.size(); ++i)
@@ -251,7 +266,18 @@ void DoppelgangerEditor::timerCallback()
     }
     else
         liveAlpha = std::max (0.0f, liveAlpha - 0.02f);
-    repaint();
+    auto& engine = proc.getEngine();
+    const std::array<float, 4> meters { engine.meterOutLufs.load(), engine.meterStaticDb.load(),
+                                       engine.meterRideDb.load(), engine.meterDeessDb.load() };
+    bool metersChanged = false;
+    for (size_t i = 0; i < meters.size(); ++i)
+        metersChanged = metersChanged || std::round (meters[i] * 10) != std::round (shownMeters[i] * 10);
+    shownMeters = meters;
+    if (fresh || oldAlpha != liveAlpha || oldHold != deessHoldDb || oldHist != deessHist
+        || oldHeadline != headline || oldStatus != statusText || oldCorrection != shown.correction
+        || oldCurve != shown.profile.curveDb || oldValid != shown.profile.valid
+        || oldRegister != shown.effectiveRegister || metersChanged)
+        repaint();
 }
 
 void DoppelgangerEditor::applyTheme()
@@ -516,8 +542,8 @@ void DoppelgangerEditor::resized()
 {
     if (sizeReady)
     {
-        proc.apvts.state.setProperty (kUiWProp, getWidth(), nullptr);
-        proc.apvts.state.setProperty (kUiHProp, getHeight(), nullptr);
+        proc.setUiProperty (kUiWProp, getWidth());
+        proc.setUiProperty (kUiHProp, getHeight());
     }
     uiScale = std::min ((float) getWidth() / kBaseW, (float) getHeight() / kBaseH);
     content.setTransform (juce::AffineTransform::scale (uiScale));
