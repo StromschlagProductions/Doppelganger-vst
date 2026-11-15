@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <charconv>
 
 DoppelgangerProcessor::DoppelgangerProcessor()
     : AudioProcessor (BusesProperties()
@@ -16,11 +17,9 @@ DoppelgangerProcessor::DoppelgangerProcessor()
     pDeessOn = apvts.getRawParameterValue ("deessOn");
     pDeessFreq = apvts.getRawParameterValue ("deessFreq");
     pDeessListen = apvts.getRawParameterValue ("deessListen");
-    fifoBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
-    drainBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
-    liveIn.assign ((size_t) kLiveRing, 0.0f);
-    liveOut.assign ((size_t) kLiveRing, 0.0f);
-    startTimerHz (30);
+    learner.prepare (currentFs);
+    startTimer (200); // no profile/learning: only lightweight parameter polling
+
 }
 
 DoppelgangerProcessor::~DoppelgangerProcessor()
@@ -77,14 +76,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoppelgangerProcessor::creat
 
 void DoppelgangerProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    currentFs = sampleRate;
+    const juce::ScopedLock stateGuard (stateLock);
+    currentFs = audioFs = dop::validSampleRate (sampleRate);
+    sampleRate = currentFs;
     engine.prepare (sampleRate);
     {
-        const juce::ScopedLock sl (learnerLock);
+        const juce::ScopedLock sl (stateLock);
         learner.prepare (sampleRate);
     }
-    learning = false;   // ein laufendes Lernen passt nach einem Neustart nicht mehr zur Abtastrate
-    tapBuf.assign ((size_t) juce::jmax (512, samplesPerBlock), 0.0f);
+    juce::ignoreUnused (samplesPerBlock);
+    cancelLearning(); // invalidate queued data from the old sample rate
+    liveFill = 0;
+    livePrimed = false;
+    liveGeneration.fetch_add (2); // preserve enabled state, discard old frames
     setLatencySamples (engine.latencySamples());   // 0: latenzfrei
     designDirty = true;
     redesign();
@@ -126,120 +130,87 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 
     const int numCh = juce::jmin (2, buffer.getNumChannels());
     const int n = buffer.getNumSamples();
-    const bool learnNow = learning.load();
-    const int chunk = (int) tapBuf.size();
-    const uint32_t liveBase = livePos.load (std::memory_order_relaxed);
-    for (int off = 0; off < n; off += chunk)
+    if (numCh == 0 || n == 0) return;
+    const auto session = learnGeneration.load (std::memory_order_acquire);
+    const bool learnNow = (session & 1u) != 0;
+    const auto liveSession = liveGeneration.load (std::memory_order_acquire);
+    const bool capture = (liveSession & 1u) != 0;
+    if (audioLiveGeneration != liveSession)
     {
-        const int m = juce::jmin (chunk, n - off);
+        audioLiveGeneration = liveSession;
+        liveFill = 0;
+        livePrimed = false;
+    }
+    for (int off = 0; off < n;)
+    {
+        const int m = std::min ({ 512, n - off, capture ? 1024 - liveFill % 1024 : 512 });
         float* ptrs[2] = { buffer.getWritePointer (0, off), numCh > 1 ? buffer.getWritePointer (1, off) : nullptr };
-        for (int i = 0; i < m; ++i)
-            liveIn[(size_t) ((liveBase + (uint32_t) (off + i)) & (kLiveRing - 1))] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
-        engine.process (ptrs, numCh, m, learnNow ? tapBuf.data() : nullptr);
-        for (int i = 0; i < m; ++i)
-            liveOut[(size_t) ((liveBase + (uint32_t) (off + i)) & (kLiveRing - 1))] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
+        if (capture)
+            for (int i = 0; i < m; ++i)
+                audioLiveFrame.input[(size_t) (liveFill + i)] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
+        engine.process (ptrs, numCh, m, learnNow ? audioLearnBlock.samples.data() : nullptr);
+        if (capture)
+        {
+            for (int i = 0; i < m; ++i)
+                audioLiveFrame.output[(size_t) (liveFill + i)] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
+            liveFill += m;
+            if (liveFill == dop::kLiveFft) { liveFill = 0; livePrimed = true; }
+            if (livePrimed && liveFill % 1024 == 0)
+            {
+                audioLiveFrame.end = liveFill;
+                audioLiveFrame.generation = liveSession;
+                audioLiveFrame.sampleRate = audioFs;
+                liveQueue.push (audioLiveFrame); // full: skip frame, never wait
+            }
+        }
         if (learnNow)
         {
-            const auto scope = fifo.write (m);   // ist der Puffer voll, gehen Samples verloren (nur Lernen betroffen)
-            if (scope.blockSize1 > 0) std::copy_n (tapBuf.data(), scope.blockSize1, fifoBuf.data() + scope.startIndex1);
-            if (scope.blockSize2 > 0) std::copy_n (tapBuf.data() + scope.blockSize1, scope.blockSize2, fifoBuf.data() + scope.startIndex2);
+            audioLearnBlock.count = m;
+            audioLearnBlock.generation = session;
+            if (! learnQueue.push (audioLearnBlock))
+                overflowGeneration.store (session, std::memory_order_release);
         }
+        off += m;
     }
-    livePos.store (liveBase + (uint32_t) n, std::memory_order_release);
 }
 
-//==============================================================================
-// Live-Spektrum (Message-Thread)
-void DoppelgangerProcessor::analyseLive (const std::vector<float>& ring, uint32_t pos, dop::GridCurve& out)
+// Message thread only; opening/closing never resets shared queue indices.
+void DoppelgangerProcessor::setLiveSpectrumEnabled (bool enabled)
 {
-    const int N = kLiveFft;
-    for (int i = 0; i < N; ++i)
-        liveWork[(size_t) i] = { (double) ring[(size_t) ((pos - (uint32_t) N + (uint32_t) i) & (kLiveRing - 1))] * liveWin[(size_t) i], 0.0 };
-    liveFft.forward (liveWork);
-    for (int k = 0; k <= N / 2; ++k) livePow[(size_t) k] = std::norm (liveWork[(size_t) k]);
-
-    double mean = 0; int cnt = 0;
-    for (int g = 0; g < dop::kRefGridPoints; ++g)
-    {
-        const auto& t = liveTab[(size_t) g];
-        double s = 0;
-        for (size_t j = 0; j < t.w.size(); ++j) s += t.w[j] * livePow[(size_t) t.k0 + j];
-        const double db = 10.0 * std::log10 (s + 1e-20);
-        out[(size_t) g] = (float) db;
-        if (dop::kRefGridHz[g] >= 100.0f && dop::kRefGridHz[g] <= 8000.0f) { mean += db; ++cnt; }
-    }
-    mean /= std::max (1, cnt);
-    for (auto& v : out) v = (float) std::clamp ((double) v - mean, -60.0, 40.0);
+    const auto generation = liveGeneration.load();
+    if (((generation & 1u) != 0) != enabled) liveGeneration.fetch_add (1);
 }
 
 bool DoppelgangerProcessor::getLiveSpectrum (dop::GridCurve& inDb, dop::GridCurve& outDb)
 {
-    const uint32_t pos = livePos.load (std::memory_order_acquire);
-    if (pos < (uint32_t) kLiveFft) return false;
-
-    if (liveTabFs != currentFs || liveWork.empty())
-    {
-        liveTabFs = currentFs;
-        liveFft.prepare (kLiveFft);
-        liveWork.assign ((size_t) kLiveFft, {});
-        livePow.assign ((size_t) kLiveFft / 2 + 1, 0.0);
-        liveWin.resize ((size_t) kLiveFft);
-        for (int i = 0; i < kLiveFft; ++i) liveWin[(size_t) i] = 0.5 - 0.5 * std::cos (2.0 * dop::kPi * i / kLiveFft);
-        const double binHz = currentFs / kLiveFft, sigma = 1.0 / 4.0;   // 1/4 Oktave: ruhiger als die gelernte Kurve
-        for (int g = 0; g < dop::kRefGridPoints; ++g)
-        {
-            auto& t = liveTab[(size_t) g];
-            const double f = (double) dop::kRefGridHz[g];
-            const int k0 = std::max (1, (int) std::floor (f * std::pow (2.0, -3.0 * sigma) / binHz));
-            const int k1 = std::min (kLiveFft / 2, (int) std::ceil (f * std::pow (2.0, 3.0 * sigma) / binHz));
-            t.k0 = k0;
-            t.w.assign ((size_t) std::max (1, k1 - k0 + 1), 0.0f);
-            double sw = 0;
-            for (int k = k0; k <= k1; ++k)
-            {
-                const double d = std::log2 (k * binHz / f) / sigma;
-                const double w = std::exp (-0.5 * d * d);
-                t.w[(size_t) (k - k0)] = (float) w;
-                sw += w;
-            }
-            if (sw <= 0) { t.w.assign (1, 1.0f); continue; }
-            for (auto& w : t.w) w = (float) (w / sw);
-        }
-    }
-
-    // Stille (Pausen, Wiedergabe gestoppt): nichts Neues anzeigen
-    double e = 0;
-    for (int i = 0; i < kLiveFft; ++i)
-    {
-        const float v = liveIn[(size_t) ((pos - (uint32_t) kLiveFft + (uint32_t) i) & (kLiveRing - 1))];
-        e += (double) v * v;
-    }
-    if (std::sqrt (e / kLiveFft) < 3e-4) return false;   // unter etwa -70 dBFS
-
-    analyseLive (liveIn, pos, inDb);
-    analyseLive (liveOut, pos, outDb);
-    return true;
+    const auto generation = liveGeneration.load();
+    bool fresh = false;
+    // Bound consumer work even when offline audio is producing continuously.
+    for (int i = 0; i < 3 && liveQueue.pop (readFrame); ++i)
+        if ((generation & 1u) != 0 && readFrame.generation == generation)
+        { displayFrame = readFrame; fresh = true; }
+    return fresh && liveSpectrum.analyse (displayFrame, inDb, outDb);
 }
 
 //==============================================================================
 void DoppelgangerProcessor::drainFifo()
 {
-    const int ready = fifo.getNumReady();
-    if (ready <= 0) return;
-    const auto scope = fifo.read (ready);
-    if (scope.blockSize1 > 0) std::copy_n (fifoBuf.data() + scope.startIndex1, scope.blockSize1, drainBuf.data());
-    if (scope.blockSize2 > 0) std::copy_n (fifoBuf.data() + scope.startIndex2, scope.blockSize2, drainBuf.data() + scope.blockSize1);
-    if (learning.load())
+    const auto session = learnGeneration.load();
+    for (int i = 0; i < 256 && learnQueue.pop (drainBlock); ++i)
+        if ((session & 1u) != 0 && drainBlock.generation == session)
+            learner.push (drainBlock.samples.data(), drainBlock.count);
+    if ((session & 1u) != 0 && overflowGeneration.load() == session)
     {
-        const juce::ScopedLock sl (learnerLock);
-        learner.push (drainBuf.data(), scope.blockSize1 + scope.blockSize2);
+        learnGeneration.fetch_add (1);
+        info.message = juce::String::fromUTF8 ("Lernen unterbrochen: Analyse konnte nicht folgen. Bitte erneut lernen.");
     }
 }
 
 void DoppelgangerProcessor::timerCallback()
 {
-    drainFifo();
-    if (learning.load())
+    const juce::ScopedLock stateGuard (stateLock);
+    if (isLearning()) drainFifo();
+    if (isLearning())
     {
         const float sec = learnedSecondsSoFar();
         bool enough = sec >= kAutoStopSeconds;
@@ -248,7 +219,7 @@ void DoppelgangerProcessor::timerCallback()
             nextConvergeCheck = sec + 1.0f;
             dop::LearnedProfile snap;
             {
-                const juce::ScopedLock sl (learnerLock);
+                const juce::ScopedLock sl (stateLock);
                 snap = learner.finish();
             }
             enough = convergence.update (snap);
@@ -256,35 +227,38 @@ void DoppelgangerProcessor::timerCallback()
         if (enough)
         {
             finishLearning();
-            stoppedAuto = true;
+            stoppedAuto = info.message.isEmpty();
         }
     }
 
     const float amount = pAmount->load(), lowcut = pLowcut->load();
-    const int reg = (int) pRegister->load();
+    const int reg = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
     if (amount != lastAmount || lowcut != lastLowcut || reg != lastRegister)
         designDirty = true;
     if (designDirty.load())
         redesign();
+    const int interval = isLearning() || info.profile.valid ? 33 : 200;
+    if (getTimerInterval() != interval) startTimer (interval);
 }
 
 int DoppelgangerProcessor::effectiveRegister() const
 {
-    const int choice = (int) pRegister->load();
+    const int choice = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
     if (choice > 0) return choice - 1;
     return dop::registerForPitch (info.profile.pitchHz);
 }
 
 void DoppelgangerProcessor::redesign()
 {
+    const juce::ScopedLock stateGuard (stateLock);
     designDirty = false;
-    lastAmount = pAmount->load();
-    lastLowcut = pLowcut->load();
-    lastRegister = (int) pRegister->load();
+    lastAmount = dop::finiteClamp (pAmount->load(), 0, 100, 60);
+    lastLowcut = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
+    lastRegister = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
 
     dop::BankDesign d = dop::flatBank();
     {
-        const juce::ScopedLock sl (infoLock);
+        const juce::ScopedLock sl (stateLock);
         info.effectiveRegister = effectiveRegister();
         info.correction.fill (0.0f);
         info.fitErrorDb = 0.0f;
@@ -302,46 +276,55 @@ void DoppelgangerProcessor::redesign()
         rideOffset = info.profile.valid ? info.profile.typicalOffsetDb : -2.5f;
         info.needsRelearnForLoudness = info.profile.valid && info.profile.loudnessLufs <= -99.0f;
     }
-    const juce::SpinLock::ScopedLockType sl (bankLock);
-    pendingBank = d.coeffs;
-    bankPending = true;
+    {
+        const juce::SpinLock::ScopedLockType sl (bankLock);
+        pendingBank = d.coeffs;
+        bankPending = true;
+    }
+    const int interval = isLearning() || info.profile.valid ? 33 : 200;
+    if (getTimerInterval() != interval) startTimer (interval);
 }
 
 //==============================================================================
 void DoppelgangerProcessor::startLearning()
 {
-    learning = false;
-    drainFifo();   // Reste verwerfen
+    const juce::ScopedLock stateGuard (stateLock);
+    cancelLearning();
+    drainFifo(); // discard old generations
     {
-        const juce::ScopedLock sl (learnerLock);
+        const juce::ScopedLock sl (stateLock);
         learner.reset();
     }
     {
-        const juce::ScopedLock sl (infoLock);
+        const juce::ScopedLock sl (stateLock);
         info.message = {};
     }
     convergence.reset();
     nextConvergeCheck = kConvergeCheckFromSeconds;
     stoppedAuto = false;
-    learning = true;
+    learnGeneration.fetch_add (1);
+    startTimerHz (30);
 }
 
 void DoppelgangerProcessor::finishLearning()
 {
-    if (! learning.load()) return;
+    const juce::ScopedLock stateGuard (stateLock);
+    if (! isLearning()) return;
     drainFifo();
-    learning = false;
+    if (! isLearning()) return; // overflow: keep the existing profile
+    learnGeneration.fetch_add (1);
     dop::LearnedProfile p;
     {
-        const juce::ScopedLock sl (learnerLock);
+        const juce::ScopedLock sl (stateLock);
         p = learner.finish();
     }
-    const juce::ScopedLock sl (infoLock);
+    const juce::ScopedLock sl (stateLock);
     if (p.valid && p.speechSeconds >= kMinLearnSeconds)
     {
         info.profile = p;
         info.message = {};
         designDirty = true;
+        redesign();
     }
     else
         info.message = "Zu wenig Sprache erkannt (" + juce::String (p.speechSeconds, 1)
@@ -350,29 +333,32 @@ void DoppelgangerProcessor::finishLearning()
 
 void DoppelgangerProcessor::cancelLearning()
 {
-    learning = false;
+    const juce::ScopedLock stateGuard (stateLock);
+    if (isLearning()) learnGeneration.fetch_add (1);
     drainFifo();
 }
 
 void DoppelgangerProcessor::forgetProfile()
 {
+    const juce::ScopedLock stateGuard (stateLock);
     cancelLearning();
-    const juce::ScopedLock sl (infoLock);
+    const juce::ScopedLock sl (stateLock);
     info.profile = {};
     info.message = {};
     stoppedAuto = false;
     designDirty = true;
+    redesign();
 }
 
 float DoppelgangerProcessor::learnedSecondsSoFar() const
 {
-    const juce::ScopedLock sl (learnerLock);
+    const juce::ScopedLock sl (stateLock);
     return learner.speechSeconds();
 }
 
 DoppelgangerProcessor::DisplayInfo DoppelgangerProcessor::getDisplayInfo() const
 {
-    const juce::ScopedLock sl (infoLock);
+    const juce::ScopedLock sl (stateLock);
     return info;
 }
 
@@ -384,10 +370,11 @@ juce::AudioProcessorEditor* DoppelgangerProcessor::createEditor()
 
 void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    const juce::ScopedLock stateGuard (stateLock);
     auto state = apvts.copyState();
     state.removeChild (state.getChildWithName ("PROFILE"), nullptr);
     {
-        const juce::ScopedLock sl (infoLock);
+        const juce::ScopedLock sl (stateLock);
         if (info.profile.valid)
         {
             juce::ValueTree pt ("PROFILE");
@@ -407,6 +394,7 @@ void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
 
 void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    const juce::ScopedLock stateGuard (stateLock);
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType())) return;
     auto state = juce::ValueTree::fromXml (*xml);
@@ -420,22 +408,44 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
         vals.removeEmptyStrings();
         if (vals.size() == dop::kRefGridPoints)
         {
-            for (int i = 0; i < dop::kRefGridPoints; ++i) p.curveDb[(size_t) i] = vals[i].getFloatValue();
+            bool parsed = true;
+            for (int i = 0; i < dop::kRefGridPoints; ++i)
+            {
+                const auto* text = vals[i].toRawUTF8();
+                const auto* end = text + vals[i].getNumBytesAsUTF8();
+                const auto result = std::from_chars (text, end, p.curveDb[(size_t) i]);
+                parsed = parsed && result.ec == std::errc {} && result.ptr == end;
+            }
             p.pitchHz = (float) pt.getProperty ("pitch", 0.0f);
             p.speechSeconds = (float) pt.getProperty ("seconds", 0.0f);
             p.loudnessLufs = (float) pt.getProperty ("lufs", -100.0f);
             p.typicalOffsetDb = (float) pt.getProperty ("typical", -2.5f);
-            p.valid = true;
+            p.valid = parsed && dop::isValidProfile (p);
         }
         state.removeChild (pt, nullptr);
     }
+    cancelLearning();
+    stoppedAuto = false;
     apvts.replaceState (state);
     {
-        const juce::ScopedLock sl (infoLock);
+        const juce::ScopedLock sl (stateLock);
         info.profile = p;
         info.message = {};
     }
     designDirty = true;
+    redesign(); // state restore must not depend on an editor or message-loop tick
+}
+
+juce::var DoppelgangerProcessor::getUiProperty (const juce::Identifier& key, const juce::var& fallback) const
+{
+    const juce::ScopedLock guard (stateLock);
+    return apvts.state.getProperty (key, fallback);
+}
+
+void DoppelgangerProcessor::setUiProperty (const juce::Identifier& key, const juce::var& value)
+{
+    const juce::ScopedLock guard (stateLock);
+    apvts.state.setProperty (key, value, nullptr);
 }
 
 // Pflicht fuer JUCE: Die Factory-Funktion erzeugt die Instanz des Plugins.

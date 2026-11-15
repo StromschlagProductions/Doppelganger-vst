@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "DoppelgangerDSP.h"
+#include "LiveSpectrum.h"
 
 // DOPPELGANGER – Audio Drama Voice Matcher (Stromschlag Audio)
 //
@@ -46,7 +47,7 @@ public:
     void finishLearning();
     void cancelLearning();
     void forgetProfile();
-    bool isLearning() const { return learning.load(); }
+    bool isLearning() const { return (learnGeneration.load() & 1u) != 0; }
     float learnedSecondsSoFar() const;
 
     static constexpr float kMinLearnSeconds = 4.0f;    // weniger Sprache reicht nicht fuer ein verlaessliches Klangbild
@@ -71,8 +72,12 @@ public:
     // Live-Spektrum von Eingang und Ausgang (nur Message-Thread). Liefert true, wenn Signal anliegt;
     // die Kurven sind in dB (Mittel von 100-8000 Hz = 0) auf dem Referenzgitter.
     bool getLiveSpectrum (dop::GridCurve& inDb, dop::GridCurve& outDb);
+    void setLiveSpectrumEnabled (bool enabled);
+    juce::var getUiProperty (const juce::Identifier&, const juce::var& fallback) const;
+    void setUiProperty (const juce::Identifier&, const juce::var&);
 
 private:
+    friend struct DoppelgangerProcessorTestAccess;
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void timerCallback() override;
     void drainFifo();
@@ -81,12 +86,14 @@ private:
 
     dop::Engine engine;
     dop::Learner learner;
-    juce::CriticalSection learnerLock;          // Learner nur ausserhalb des Audio-Threads
+    // Serialises host state/prepare calls and message-thread work. Never acquired by processBlock.
+    mutable juce::CriticalSection stateLock;
 
     // Audio-Thread -> Lernen
-    juce::AbstractFifo fifo { 1 << 17 };
-    std::vector<float> fifoBuf, tapBuf, drainBuf;
-    std::atomic<bool> learning { false };
+    dop::SpscQueue<dop::LearnBlock, 257> learnQueue;
+    dop::LearnBlock audioLearnBlock, drainBlock;
+    // Odd = active. Every start/stop invalidates blocks from the previous session.
+    std::atomic<uint64_t> learnGeneration { 0 }, overflowGeneration { 0 };
 
     // Message-Thread -> Audio-Thread: neue Filterbank
     juce::SpinLock bankLock;
@@ -94,24 +101,21 @@ private:
     bool bankPending = false;
 
     // Gelerntes und Anzeige
-    mutable juce::CriticalSection infoLock;
     DisplayInfo info;
     std::atomic<bool> designDirty { true };
     float lastAmount = -1.0f, lastLowcut = -1.0f;
     int lastRegister = -1;
     double currentFs = 48000.0;
 
-    // Live-Anzeige: Audio-Thread schreibt Mono-Ringpuffer, der Editor analysiert sie
-    static constexpr int kLiveRing = 16384, kLiveFft = 4096;
-    std::vector<float> liveIn, liveOut;
-    std::atomic<uint32_t> livePos { 0 };
-    dop::FFT liveFft;
-    std::vector<std::complex<double>> liveWork;
-    std::vector<double> liveWin, livePow;
-    struct LiveTap { int k0 = 0; std::vector<float> w; };
-    std::array<LiveTap, (size_t) dop::kRefGridPoints> liveTab;
-    double liveTabFs = 0.0;
-    void analyseLive (const std::vector<float>& ring, uint32_t pos, dop::GridCurve& out);
+    // Fixed ownership, no ring overwrite. GUI owns analyser and consumed frames.
+    dop::SpscQueue<dop::LiveFrame, 4> liveQueue;
+    dop::LiveFrame audioLiveFrame, displayFrame, readFrame;
+    dop::LiveSpectrum liveSpectrum;
+    std::atomic<uint64_t> liveGeneration { 0 };
+    uint64_t audioLiveGeneration = 0;
+    int liveFill = 0;
+    bool livePrimed = false;
+    double audioFs = 48000.0; // prepare/process only (host must suspend audio for prepare)
 
     dop::ConvergenceTracker convergence;
     float nextConvergeCheck = 0.0f;

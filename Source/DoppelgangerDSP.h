@@ -15,6 +15,8 @@
 #include <cmath>
 #include <complex>
 #include <cstring>
+#include <cstdint>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 #include "ReferenceCurves.h"
@@ -22,6 +24,17 @@
 namespace dop
 {
 constexpr double kPi = 3.14159265358979323846;
+
+// Hosts normally supply 8-192 kHz; reject invalid/unbounded rates before sizing buffers.
+inline double validSampleRate (double fs)
+{
+    return std::isfinite (fs) && fs >= 8000.0 && fs <= 768000.0 ? fs : 48000.0;
+}
+inline float finiteClamp (float value, float lo, float hi, float fallback)
+{
+    return std::isfinite (value) ? std::clamp (value, lo, hi) : fallback;
+}
+
 
 //==============================================================================
 //  Biquad (Transposed Direct Form II, double)
@@ -122,6 +135,8 @@ class FFT
 public:
     void prepare (int size)
     {
+        if (size < 2 || size > (1 << 20) || (size & (size - 1)) != 0)
+            throw std::invalid_argument ("FFT size must be a power of two (2..1048576)");
         n = size;
         bits = 0;
         while ((1 << bits) < n) ++bits;
@@ -148,6 +163,8 @@ public:
 private:
     void run (std::vector<std::complex<double>>& a, bool inv) const
     {
+        if (n == 0 || a.size() != (size_t) n)
+            throw std::invalid_argument ("FFT buffer size mismatch");
         for (int i = 0; i < n; ++i)
             if (i < rev[(size_t) i]) std::swap (a[(size_t) i], a[(size_t) rev[(size_t) i]]);
         for (int len = 2; len <= n; len <<= 1)
@@ -207,6 +224,17 @@ struct LearnedProfile
     bool valid = false;
 };
 
+// Accept old profiles without loudness fields, but never feed malformed data to DSP.
+inline bool isValidProfile (const LearnedProfile& p)
+{
+    for (float v : p.curveDb)
+        if (! std::isfinite (v) || v < -60.01f || v > 40.01f) return false;
+    return std::isfinite (p.pitchHz) && p.pitchHz >= 0 && p.pitchHz <= 2000
+        && std::isfinite (p.speechSeconds) && p.speechSeconds >= 0
+        && std::isfinite (p.loudnessLufs) && p.loudnessLufs >= -100 && p.loudnessLufs <= 24
+        && std::isfinite (p.typicalOffsetDb) && p.typicalOffsetDb >= -8 && p.typicalOffsetDb <= 0;
+}
+
 //==============================================================================
 //  Learner: misst Langzeit-Spektrum (wie tools/make_reference_curves.py) und Tonhoehe
 //  Laeuft NICHT im Audio-Thread.
@@ -220,7 +248,7 @@ public:
 
     void prepare (double sampleRate)
     {
-        fs = sampleRate;
+        fs = validSampleRate (sampleRate);
         // Framelaenge wie im Generator (4096 bei 48 kHz), bei hoeheren Raten passend groesser
         frameLen = 1;
         while (frameLen < (int) std::lround (4096.0 * fs / 48000.0)) frameLen <<= 1;
@@ -290,7 +318,7 @@ public:
     {
         for (int i = 0; i < n; ++i)
         {
-            const double v = x[i];
+            const double v = std::isfinite (x[i]) ? x[i] : 0.0;
             // Spektrum
             buf[(size_t) (filled % frameLen)] = v;
             ++filled;
@@ -312,7 +340,6 @@ public:
             // Tonhoehe
             double b = s4.process (bp4, s3.process (bp3, s2.process (bp2, s1.process (bp1, v))));
             pBuf[(size_t) (pFilled % pLen)] = b;
-            pRaw = v;
             ++pFilled;
             if (pFilled >= pLen && ++pSinceHop >= pHop)
             {
@@ -474,7 +501,7 @@ private:
     std::vector<std::complex<double>> work;
     std::vector<double> bucketPower;
     std::vector<long> bucketCount;
-    long filled = 0, sinceHop = 0, speechFrames = 0;
+    int64_t filled = 0, sinceHop = 0, speechFrames = 0;
 
     int pLen = 1920, pHop = 960, minLag = 137, maxLag = 738, pFftLen = 4096;
     FFT pFft;
@@ -482,15 +509,14 @@ private:
     std::vector<std::complex<double>> pWork;
     Biquad bp1, bp2, bp3, bp4;
     BiquadState s1, s2, s3, s4;
-    long pFilled = 0, pSinceHop = 0;
-    double pRaw = 0;
+    int64_t pFilled = 0, pSinceHop = 0;
     std::vector<std::pair<float, float>> pitches;   // (Hz, Pegel dB)
 
     Biquad kShelf, kHp;
     BiquadState k1, k2;
     double subAcc = 0.0;
     int subLen = 4800, subN = 0;
-    long subCount = 0;
+    int64_t subCount = 0;
     std::array<double, 4> sub {};
     std::vector<double> blocks;
 };
@@ -743,7 +769,7 @@ public:
 
     void prepare (double sampleRate)
     {
-        fs = sampleRate;
+        fs = validSampleRate (sampleRate);
         kShelf = kWeightShelf (fs);
         kHp = kWeightHighPass (fs);
         for (auto& b : bank[0]) b = Biquad {};
@@ -752,6 +778,14 @@ public:
         loudCoef = 1.0 - std::exp (-1.0 / (0.4 * fs));
         envAtt = 1.0 - std::exp (-1.0 / (0.0005 * fs));
         envRel = 1.0 - std::exp (-1.0 / (0.05 * fs));
+        const double dt = 16.0 / fs;
+        staticCoef = 1.0 - std::exp (-dt / 0.05);
+        rideOffCoef = 1.0 - std::exp (-dt / 0.5);
+        rideUpCoef = 1.0 - std::exp (-dt / 1.5);
+        rideDownCoef = 1.0 - std::exp (-dt / 0.8);
+        rideSmoothCoef = 1.0 - std::exp (-dt / 0.3);
+        neutral[0] = neutral[1] = true;
+        cur = 0; fading = false; bankQueued = false;
         lastLowcut = -1.0f;
         lastDeessFreq = -1.0f;
         reset();
@@ -759,6 +793,10 @@ public:
 
     void reset()
     {
+        // A transport reset keeps the latest requested correction, including an unfinished fade.
+        if (bankQueued) { bank[cur] = queuedBank; neutral[cur] = isNeutral (queuedBank); }
+        else if (fading) cur = 1 - cur;
+        bankQueued = false;
         for (auto& ch : chans)
         {
             for (auto& s : ch.lc) s.reset();
@@ -771,18 +809,29 @@ public:
         msK = outMs = 0.0;
         ride1 = ride2 = 0.0;
         staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
+        gainStatic = std::pow (10.0, staticDb / 20.0);
+        gainRide = 1.0;
         ctl = 0;
     }
 
     int latencySamples() const { return 0; }
 
-    void setParams (const EngineParams& p)
+    void setParams (EngineParams p)
     {
+        p.lowcutHz = finiteClamp (p.lowcutHz, 20, 200, 80);
+        p.deess = finiteClamp (p.deess, 0, 1, 0.25f);
+        p.deessFreqHz = finiteClamp (p.deessFreqHz, 3000, 10000, 5500);
+        p.leveler = finiteClamp (p.leveler, 0, 1, 0.5f);
+        p.targetLufs = finiteClamp (p.targetLufs, -30, -14, -23);
+        p.takeLufs = finiteClamp (p.takeLufs, -100, 24, -100);
+        p.rideOffsetDb = finiteClamp (p.rideOffsetDb, -8, 0, -2.5f);
         params = p;
         if (p.lowcutHz != lastLowcut)
         {
             lastLowcut = p.lowcutHz;
+            const bool wasOn = lcOn;
             lcOn = p.lowcutHz > 20.0f;
+            if (lcOn != wasOn) for (auto& ch : chans) for (auto& state : ch.lc) state.reset();
             if (lcOn)
             {
                 lc[0] = highPass (fs, p.lowcutHz, 0.5412);   // Butterworth 4. Ordnung
@@ -800,12 +849,14 @@ public:
     // Neue Filterbank uebernehmen: weiche Ueberblendung ueber 30 ms
     void setBank (const std::array<Biquad, kBands>& c)
     {
-        if (fading) { cur = 1 - cur; fading = false; }
-        const int nx = 1 - cur;
-        bank[nx] = c;
-        for (auto& ch : chans) ch.eq[nx] = ch.eq[cur];   // Zustand mitnehmen, damit nichts knackt
-        fading = true;
-        fadePos = 0;
+        if (fading)
+        {
+            // Keep the current fade continuous. Coalesce automation to the newest bank.
+            queuedBank = c;
+            bankQueued = ! sameBank (c, bank[1 - cur]);
+            return;
+        }
+        if (! sameBank (c, bank[cur])) beginFade (c);
     }
 
     // tap: optional, erhaelt das Mono-Signal nach dem Lowcut (fuers Lernen)
@@ -818,10 +869,11 @@ public:
         const double dAmt = params.deessOn ? std::clamp ((double) params.deess, 0.0, 1.0) : 0.0;
         const double dThr = -6.0 - 10.0 * dAmt;
         const double dMax = 12.0 * dAmt;
-        double maxDe = 0, peak = 0;
+        double minDeessGain = 1, peak = 0;
 
         for (int i = 0; i < n; ++i)
         {
+            if (! fading && bankQueued) { bankQueued = false; beginFade (queuedBank); }
             if (ctl == 0) controlTick();
             if (++ctl >= 16) ctl = 0;
 
@@ -831,15 +883,15 @@ public:
             for (int c = 0; c < numCh; ++c)
             {
                 auto& ch = chans[(size_t) c];
-                double x = io[c][i];
+                double x = std::isfinite (io[c][i]) ? io[c][i] : 0.0;
                 if (lcOn) x = ch.lc[1].process (lc[1], ch.lc[0].process (lc[0], x));
                 tapSum += x;
                 double e = x;
-                for (int k = 0; k < kBands; ++k) e = ch.eq[cur][(size_t) k].process (bank[cur][(size_t) k], e);
+                if (! neutral[cur]) for (int k = 0; k < kBands; ++k) e = ch.eq[cur][(size_t) k].process (bank[cur][(size_t) k], e);
                 if (fading)
                 {
                     double e2 = x;
-                    for (int k = 0; k < kBands; ++k) e2 = ch.eq[1 - cur][(size_t) k].process (bank[1 - cur][(size_t) k], e2);
+                    if (! neutral[1 - cur]) for (int k = 0; k < kBands; ++k) e2 = ch.eq[1 - cur][(size_t) k].process (bank[1 - cur][(size_t) k], e2);
                     e = e + a * (e2 - e);
                 }
                 y[c] = e;
@@ -862,7 +914,7 @@ public:
                     targetGain = std::pow (10.0, -std::min (dMax, (ratioDb - dThr) * (2.0 / 3.0)) / 20.0);
             }
             deessGain += (targetGain < deessGain ? envAtt : envRel) * (targetGain - deessGain);
-            maxDe = std::max (maxDe, -20.0 * std::log10 (deessGain));
+            minDeessGain = std::min (minDeessGain, deessGain);
             if (ctl == 0)
             {
                 const double redDb = 20.0 * std::log10 (deessGain);
@@ -873,7 +925,7 @@ public:
                 }
             }
 
-            const double gStatic = std::pow (10.0, staticDb / 20.0);
+            const double gStatic = gainStatic;
             double kpIn = 0, kpOut = 0;
             for (int c = 0; c < numCh; ++c)
             {
@@ -892,6 +944,7 @@ public:
             msK += loudCoef * (kpIn * invCh - msK);
             outMs += loudCoef * (kpOut * invCh - outMs);
         }
+        const double maxDe = -20.0 * std::log10 (minDeessGain);
         meterRideDb.store ((float) ride2);
         meterStaticDb.store ((float) staticDb);
         meterDeessDb.store ((float) maxDe);
@@ -903,6 +956,29 @@ public:
     }
 
 private:
+    static bool isNeutral (const std::array<Biquad, kBands>& c)
+    {
+        return std::all_of (c.begin(), c.end(), [] (const Biquad& b)
+            { return b.b0 == 1.0 && b.b1 == b.a1 && b.b2 == b.a2; });
+    }
+    static bool sameBank (const std::array<Biquad, kBands>& a, const std::array<Biquad, kBands>& b)
+    {
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].b0 != b[i].b0 || a[i].b1 != b[i].b1 || a[i].b2 != b[i].b2
+                || a[i].a1 != b[i].a1 || a[i].a2 != b[i].a2) return false;
+        return true;
+    }
+    void beginFade (const std::array<Biquad, kBands>& c)
+    {
+        const int next = 1 - cur;
+        bank[next] = c;
+        neutral[next] = isNeutral (c);
+        // TDF-II delays depend on coefficients. Copying unrelated delays can inject
+        // a transient, even into an identity bank. Fade in a clean target instead.
+        for (auto& ch : chans) for (auto& state : ch.eq[next]) state.reset();
+        fading = true;
+        fadePos = 0;
+    }
     double desiredStaticDb() const
     {
         if (params.takeLufs <= -99.0f) return 0.0;
@@ -914,8 +990,7 @@ private:
     //  - Leveler: faehrt sanft innerhalb eines begrenzten Bereichs (wie ein Fader), in Pausen haelt er still
     void controlTick()
     {
-        const double dt = 16.0 / fs;
-        staticDb += (1.0 - std::exp (-dt / 0.05)) * (desiredStaticDb() - staticDb);   // nur bei Reglerbewegungen
+        staticDb += staticCoef * (desiredStaticDb() - staticDb);   // nur bei Reglerbewegungen
 
         const double range = kMaxRangeDb * std::clamp ((double) params.leveler, 0.0, 1.0);
         const double lufs = -0.691 + 10.0 * std::log10 (msK + 1e-20);
@@ -923,16 +998,17 @@ private:
         // ohne die Gesamtlautheit zu veraendern.
         const double target = params.targetLufs + params.rideOffsetDb;
         if (range <= 0.01)
-            ride1 += (1.0 - std::exp (-dt / 0.5)) * (0.0 - ride1);
+            ride1 += rideOffCoef * (0.0 - ride1);
         else if (lufs > target - 16.0)   // Sprache (Pausen und Atmer liegen darunter)
         {
             const double desired = std::clamp (0.7 * (target - lufs), -range, range);
-            const double tau = desired > ride1 ? 1.5 : 0.8;   // anheben langsam, absenken etwas schneller
-            ride1 += (1.0 - std::exp (-dt / tau)) * (desired - ride1);
+            const double coef = desired > ride1 ? rideUpCoef : rideDownCoef;   // anheben langsam, absenken etwas schneller
+            ride1 += coef * (desired - ride1);
         }
         ride1 = std::clamp (ride1, -range, range);
-        ride2 += (1.0 - std::exp (-dt / 0.3)) * (ride1 - ride2);   // zweite Glaettung: weiche Uebergaenge ohne Knick
+        ride2 += rideSmoothCoef * (ride1 - ride2);   // zweite Glaettung: weiche Uebergaenge ohne Knick
         gainRide = std::pow (10.0, ride2 / 20.0);
+        gainStatic = std::pow (10.0, staticDb / 20.0);
     }
 
     struct Chan
@@ -950,12 +1026,15 @@ private:
     float lastLowcut = -1.0f, lastDeessFreq = -1.0f;
     std::array<std::array<Biquad, kBands>, 2> bank {};
     int cur = 0;
-    bool fading = false;
+    bool fading = false, bankQueued = false;
+    bool neutral[2] { true, true };
+    std::array<Biquad, kBands> queuedBank {};
     int fadePos = 0, fadeLen = 1440;
 
     double envAtt = 0, envRel = 0, hiPow = 0, fullPow = 0, deessGain = 1, shelfDb = 0;
     double loudCoef = 0, msK = 0, outMs = 0;
     double staticDb = 0, ride1 = 0, ride2 = 0, gainRide = 1;
+    double gainStatic = 1, staticCoef = 0, rideOffCoef = 0, rideUpCoef = 0, rideDownCoef = 0, rideSmoothCoef = 0;
     int ctl = 0;
 };
 
