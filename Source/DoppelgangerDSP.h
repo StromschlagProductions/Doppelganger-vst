@@ -65,6 +65,7 @@ inline Biquad normalise (double b0, double b1, double b2, double a0, double a1, 
 // Glockenfilter nach RBJ Audio-EQ-Cookbook
 inline Biquad peaking (double fs, double f, double q, double gainDb)
 {
+    if (gainDb == 0.0) return {}; // exact identity, also with fused floating-point operations
     const double A = std::pow (10.0, gainDb / 40.0);
     const double w = 2.0 * kPi * f / fs;
     const double alpha = std::sin (w) / (2.0 * q);
@@ -91,6 +92,7 @@ inline Biquad lowPass (double fs, double f, double q)
 // Hoehen-Shelf nach RBJ (Flankensteilheit S = 1)
 inline Biquad highShelf (double fs, double f, double gainDb)
 {
+    if (gainDb == 0.0) return {};
     const double A = std::pow (10.0, gainDb / 40.0);
     const double w = 2.0 * kPi * f / fs;
     const double c = std::cos (w), alpha = std::sin (w) / 2.0 * std::sqrt (2.0);

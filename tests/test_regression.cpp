@@ -66,6 +66,10 @@ void engineTests()
     for (double fs : { 8000., 22050., 44100., 48000., 96000., 192000. })
     {
         for (int channels : { 1, 2 }) CHECK (render (fs, channels, true) == render (fs, channels, false));
+        const auto peakIdentity = dop::peaking (fs, 1000, 2.1, 0);
+        const auto shelfIdentity = dop::highShelf (fs, 3000, 0);
+        CHECK (peakIdentity.b0 == 1 && peakIdentity.b1 == 0 && peakIdentity.a1 == 0);
+        CHECK (shelfIdentity.b0 == 1 && shelfIdentity.b1 == 0 && shelfIdentity.a1 == 0);
         dop::Engine e; e.prepare (fs); e.setParams (bypass());
         auto x = voice (fs, 0.1), expected = x;
         float* ptr[] = { x.data() }; e.process (ptr, 1, (int) x.size(), nullptr); CHECK (x == expected);
