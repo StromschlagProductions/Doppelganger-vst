@@ -18,6 +18,8 @@ DoppelgangerProcessor::DoppelgangerProcessor()
     pDeessListen = apvts.getRawParameterValue ("deessListen");
     fifoBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
     drainBuf.assign ((size_t) fifo.getTotalSize(), 0.0f);
+    liveIn.assign ((size_t) kLiveRing, 0.0f);
+    liveOut.assign ((size_t) kLiveRing, 0.0f);
     startTimerHz (30);
 }
 
@@ -126,11 +128,16 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     const int n = buffer.getNumSamples();
     const bool learnNow = learning.load();
     const int chunk = (int) tapBuf.size();
+    const uint32_t liveBase = livePos.load (std::memory_order_relaxed);
     for (int off = 0; off < n; off += chunk)
     {
         const int m = juce::jmin (chunk, n - off);
         float* ptrs[2] = { buffer.getWritePointer (0, off), numCh > 1 ? buffer.getWritePointer (1, off) : nullptr };
+        for (int i = 0; i < m; ++i)
+            liveIn[(size_t) ((liveBase + (uint32_t) (off + i)) & (kLiveRing - 1))] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
         engine.process (ptrs, numCh, m, learnNow ? tapBuf.data() : nullptr);
+        for (int i = 0; i < m; ++i)
+            liveOut[(size_t) ((liveBase + (uint32_t) (off + i)) & (kLiveRing - 1))] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
         if (learnNow)
         {
             const auto scope = fifo.write (m);   // ist der Puffer voll, gehen Samples verloren (nur Lernen betroffen)
@@ -138,6 +145,80 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             if (scope.blockSize2 > 0) std::copy_n (tapBuf.data() + scope.blockSize1, scope.blockSize2, fifoBuf.data() + scope.startIndex2);
         }
     }
+    livePos.store (liveBase + (uint32_t) n, std::memory_order_release);
+}
+
+//==============================================================================
+// Live-Spektrum (Message-Thread)
+void DoppelgangerProcessor::analyseLive (const std::vector<float>& ring, uint32_t pos, dop::GridCurve& out)
+{
+    const int N = kLiveFft;
+    for (int i = 0; i < N; ++i)
+        liveWork[(size_t) i] = { (double) ring[(size_t) ((pos - (uint32_t) N + (uint32_t) i) & (kLiveRing - 1))] * liveWin[(size_t) i], 0.0 };
+    liveFft.forward (liveWork);
+    for (int k = 0; k <= N / 2; ++k) livePow[(size_t) k] = std::norm (liveWork[(size_t) k]);
+
+    double mean = 0; int cnt = 0;
+    for (int g = 0; g < dop::kRefGridPoints; ++g)
+    {
+        const auto& t = liveTab[(size_t) g];
+        double s = 0;
+        for (size_t j = 0; j < t.w.size(); ++j) s += t.w[j] * livePow[(size_t) t.k0 + j];
+        const double db = 10.0 * std::log10 (s + 1e-20);
+        out[(size_t) g] = (float) db;
+        if (dop::kRefGridHz[g] >= 100.0f && dop::kRefGridHz[g] <= 8000.0f) { mean += db; ++cnt; }
+    }
+    mean /= std::max (1, cnt);
+    for (auto& v : out) v = (float) std::clamp ((double) v - mean, -60.0, 40.0);
+}
+
+bool DoppelgangerProcessor::getLiveSpectrum (dop::GridCurve& inDb, dop::GridCurve& outDb)
+{
+    const uint32_t pos = livePos.load (std::memory_order_acquire);
+    if (pos < (uint32_t) kLiveFft) return false;
+
+    if (liveTabFs != currentFs || liveWork.empty())
+    {
+        liveTabFs = currentFs;
+        liveFft.prepare (kLiveFft);
+        liveWork.assign ((size_t) kLiveFft, {});
+        livePow.assign ((size_t) kLiveFft / 2 + 1, 0.0);
+        liveWin.resize ((size_t) kLiveFft);
+        for (int i = 0; i < kLiveFft; ++i) liveWin[(size_t) i] = 0.5 - 0.5 * std::cos (2.0 * dop::kPi * i / kLiveFft);
+        const double binHz = currentFs / kLiveFft, sigma = 1.0 / 4.0;   // 1/4 Oktave: ruhiger als die gelernte Kurve
+        for (int g = 0; g < dop::kRefGridPoints; ++g)
+        {
+            auto& t = liveTab[(size_t) g];
+            const double f = (double) dop::kRefGridHz[g];
+            const int k0 = std::max (1, (int) std::floor (f * std::pow (2.0, -3.0 * sigma) / binHz));
+            const int k1 = std::min (kLiveFft / 2, (int) std::ceil (f * std::pow (2.0, 3.0 * sigma) / binHz));
+            t.k0 = k0;
+            t.w.assign ((size_t) std::max (1, k1 - k0 + 1), 0.0f);
+            double sw = 0;
+            for (int k = k0; k <= k1; ++k)
+            {
+                const double d = std::log2 (k * binHz / f) / sigma;
+                const double w = std::exp (-0.5 * d * d);
+                t.w[(size_t) (k - k0)] = (float) w;
+                sw += w;
+            }
+            if (sw <= 0) { t.w.assign (1, 1.0f); continue; }
+            for (auto& w : t.w) w = (float) (w / sw);
+        }
+    }
+
+    // Stille (Pausen, Wiedergabe gestoppt): nichts Neues anzeigen
+    double e = 0;
+    for (int i = 0; i < kLiveFft; ++i)
+    {
+        const float v = liveIn[(size_t) ((pos - (uint32_t) kLiveFft + (uint32_t) i) & (kLiveRing - 1))];
+        e += (double) v * v;
+    }
+    if (std::sqrt (e / kLiveFft) < 3e-4) return false;   // unter etwa -70 dBFS
+
+    analyseLive (liveIn, pos, inDb);
+    analyseLive (liveOut, pos, outDb);
+    return true;
 }
 
 //==============================================================================

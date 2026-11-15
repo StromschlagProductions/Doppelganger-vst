@@ -47,9 +47,9 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "De-Esser und Leveler stecken in einem Plugin.");
 
     head ("STIMME LERNEN");
-    body ("„Lernen“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Nach 30 Sekunden "
-          "Sprache hört es von selbst auf, mit „Fertig“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
-          "Das Gelernte wird mit dem Projekt gespeichert. „Vergessen“ löscht es wieder.");
+    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Nach 30 Sekunden "
+          "Sprache hört es von selbst auf, mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
+          "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
 
     head ("STIMMLAGE");
@@ -61,13 +61,13 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "angeglichen, die eigene Farbe der Stimme bleibt. Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt. "
           "Die Referenzen enden bei 16 kHz, darüber bleibt der Take unverändert.");
     body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz.");
-    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe).");
+    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe). Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
 
     head ("DE-ESSER");
     body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 dB, "
           "bei 100 % etwa 10 dB. Vokale bleiben unberührt. Frequenz: ab hier sucht und bearbeitet der De-Esser die S-Laute (Standard 5,5 kHz). "
           "Tiefer bei dumpfen oder männlichen Stimmen, höher bei hellen.");
-    body ("NUR S: spielt nur den Bereich ab, auf den der De-Esser hört. So findest du schnell die richtige Frequenz. Danach wieder ausschalten.");
+    body ("Listen: spielt nur den Bereich ab, auf den der De-Esser hört. So findest du schnell die richtige Frequenz. Danach wieder ausschalten.");
     note ("Klingen die S-Laute eines Takes ohnehin schwach oder lispelnd, den De-Esser ausschalten.");
 
     head ("LAUTHEIT");
@@ -104,8 +104,8 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
         else proc.startLearning();
         timerCallback();
     };
-    learnButton.setTooltip (u8 ("Lernen drücken, dann die Spur abspielen. Stoppt nach 30 s Sprache von selbst oder mit „Fertig“."));
-    forgetButton.setButtonText ("Vergessen");
+    learnButton.setTooltip (u8 ("Learn drücken, dann die Spur abspielen. Stoppt nach 30 s Sprache von selbst oder mit „Done“."));
+    forgetButton.setButtonText ("CLEAR");
     forgetButton.setTooltip (u8 ("Gelerntes löschen. Danach arbeiten nur Lowcut, De-Esser und Leveler."));
     forgetButton.onClick = [this] { proc.forgetProfile(); timerCallback(); };
     content.addAndMakeVisible (learnButton);
@@ -121,7 +121,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     setupKnob (lowcutKnob, "lowcut", u8 ("LOWCUT"), u8 ("Hochpass 24 dB/Oktave, ganz links aus. Doppelklick: 80 Hz"), 80.0);
     setupKnob (deessKnob, "deess", u8 ("STÄRKE"), u8 ("Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Doppelklick: 25 %"), 25.0);
     setupKnob (deessFreqKnob, "deessFreq", u8 ("FREQUENZ"),
-               u8 ("Ab hier sucht und bearbeitet der De-Esser die S-Laute. Mit „Nur S“ abhören. Doppelklick: 5,5 kHz"), 5500.0);
+               u8 ("Ab hier sucht und bearbeitet der De-Esser die S-Laute. Mit „Listen“ abhören. Doppelklick: 5,5 kHz"), 5500.0);
     setupKnob (levelerKnob, "leveler", u8 ("LEVELER"),
                u8 ("Sanfter Ausgleich leiser und lauter Passagen: 0 % = aus, 100 % = bis ±10 dB. Doppelklick: 50 %"), 50.0);
     setupKnob (targetKnob, "target", u8 ("ZIEL"), u8 ("Ziel-Lautheit der Spur. Doppelklick: −23 LUFS"), -23.0);
@@ -129,7 +129,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     deessOnButton.setClickingTogglesState (true);
     deessOnButton.setTooltip (u8 ("De-Esser an- und ausschalten, zum Vergleich"));
     deessOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "deessOn", deessOnButton);
-    deessListenButton.setButtonText ("NUR S");
+    deessListenButton.setButtonText ("LISTEN");
     deessListenButton.setClickingTogglesState (true);
     deessListenButton.setTooltip (u8 ("Nur den Bereich hören, auf den der De-Esser reagiert. Zum Einstellen der Frequenz, danach wieder aus."));
     deessListenAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "deessListen", deessListenButton);
@@ -162,7 +162,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     setSize (juce::jlimit (kBaseW / 2, kBaseW * 3, savedW), juce::jlimit (kBaseH / 2, kBaseH * 3, savedH));
     sizeReady = true;
     timerCallback();
-    startTimerHz (15);
+    startTimerHz (25);
 }
 
 DoppelgangerEditor::~DoppelgangerEditor()
@@ -189,8 +189,8 @@ void DoppelgangerEditor::setupKnob (Knob& k, const juce::String& paramId, const 
 void DoppelgangerEditor::updateLearnButton()
 {
     const bool learning = proc.isLearning();
-    learnButton.setButtonText (learning ? u8 ("FERTIG  ·  ") + juce::String (proc.learnedSecondsSoFar(), 1) + " s"
-                                        : (shown.profile.valid ? u8 ("NEU LERNEN") : u8 ("LERNEN")));
+    learnButton.setButtonText (learning ? u8 ("DONE  ·  ") + juce::String (proc.learnedSecondsSoFar(), 1) + " s"
+                                        : u8 ("LEARN"));
     learnButton.setToggleState (learning, juce::dontSendNotification);
     forgetButton.setEnabled (shown.profile.valid || learning);
     deessOnButton.setButtonText (deessOnButton.getToggleState() ? "AN" : "AUS");
@@ -201,19 +201,44 @@ void DoppelgangerEditor::timerCallback()
     shown = proc.getDisplayInfo();
     updateLearnButton();
 
+    const bool manual = proc.apvts.getRawParameterValue ("register")->load() > 0.5f;
+    headline = {};
     if (proc.isLearning())
-        statusText = u8 ("Lernt … Spur abspielen. Stoppt nach ") + juce::String ((int) DoppelgangerProcessor::kAutoStopSeconds)
+    {
+        headline = u8 ("Lernt …");
+        statusText = u8 ("Jetzt die Spur abspielen. Stoppt nach ") + juce::String ((int) DoppelgangerProcessor::kAutoStopSeconds)
                      + u8 (" s Sprache von selbst.");
+    }
     else if (shown.message.isNotEmpty())
         statusText = shown.message;
     else if (! shown.profile.valid)
         statusText = u8 ("Noch nichts gelernt. Bis dahin arbeiten nur Lowcut, De-Esser und Leveler.");
     else if (shown.needsRelearnForLoudness)
-        statusText = u8 ("Bitte einmal neu lernen: Dieses Profil stammt aus v0.2 und kennt die Lautheit der Spur noch nicht.");
+        statusText = u8 ("Bitte einmal neu mit Learn lernen: Dieses Profil stammt aus v0.2 und kennt die Lautheit der Spur noch nicht.");
     else
-        statusText = juce::String (juce::roundToInt (shown.profile.speechSeconds)) + u8 (" s gelernt  ·  Tonhöhe ")
-                     + (shown.profile.pitchHz > 0 ? juce::String (juce::roundToInt (shown.profile.pitchHz)) + " Hz" : u8 ("nicht erkannt"))
-                     + u8 ("  ·  Referenz ") + kRegNames[shown.effectiveRegister];
+    {
+        headline = (manual ? u8 ("REFERENZ: ") : u8 ("ERKANNT: ")) + juce::String (kRegNames[shown.effectiveRegister]);
+        statusText = (manual ? u8 ("fest gewählt  ·  ") : juce::String())
+                     + (shown.profile.pitchHz > 0 ? u8 ("Tonhöhe ") + juce::String (juce::roundToInt (shown.profile.pitchHz)) + " Hz"
+                                                  : u8 ("Tonhöhe nicht erkannt, Referenz Mittel"))
+                     + u8 ("  ·  ") + juce::String (juce::roundToInt (shown.profile.speechSeconds)) + u8 (" s gelernt");
+    }
+
+    // Live-Spektrum: schnell hoch, etwas traeger runter; in Pausen langsam ausblenden
+    dop::GridCurve li {}, lo {};
+    if (proc.getLiveSpectrum (li, lo))
+    {
+        const float a = liveHasData ? 0.35f : 1.0f;
+        for (size_t i = 0; i < li.size(); ++i)
+        {
+            liveIn[i] += a * (li[i] - liveIn[i]);
+            liveOut[i] += a * (lo[i] - liveOut[i]);
+        }
+        liveHasData = true;
+        liveAlpha = std::min (1.0f, liveAlpha + 0.25f);
+    }
+    else
+        liveAlpha = std::max (0.0f, liveAlpha - 0.02f);
     repaint();
 }
 
@@ -332,9 +357,18 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     g.setColour (theme.dim);
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.drawText ("STIMMLAGE", W - 166, 80, 140, 16, juce::Justification::centredLeft);
+    if (headline.isNotEmpty())
+    {
+        g.setColour (theme.accent);
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.drawText (headline, 296, 94, W - 296 - 176, 22, juce::Justification::centredLeft);
+    }
     g.setColour (shown.message.isNotEmpty() || shown.needsRelearnForLoudness ? theme.accent : theme.text);
-    g.setFont (juce::FontOptions (12.5f));
-    g.drawFittedText (statusText, 296, 96, W - 296 - 180, 46, juce::Justification::centredLeft, 3, 1.0f);
+    g.setFont (juce::FontOptions (12.0f));
+    if (headline.isNotEmpty())
+        g.drawFittedText (statusText, 296, 118, W - 296 - 176, 26, juce::Justification::topLeft, 2, 1.0f);
+    else
+        g.drawFittedText (statusText, 296, 98, W - 296 - 176, 44, juce::Justification::centredLeft, 3, 1.0f);
 
     // Karte: Klangbild
     card (12.0f, 158.0f, (float) W - 24.0f, 142.0f, "KLANGBILD");
@@ -347,6 +381,10 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
         g.drawText ("STIMME", lx + 76, 162, 60, 16, juce::Justification::centredLeft);
         g.setColour (theme.accent);
         g.drawText (u8 ("KORREKTUR ±12 dB"), lx + 140, 162, 160, 16, juce::Justification::centredLeft);
+        g.setColour (theme.text.withAlpha (0.55f));
+        g.drawText ("LIVE:  EINGANG", 112, 162, 100, 16, juce::Justification::centredLeft);
+        g.setColour (theme.text);
+        g.drawText ("AUSGANG", 214, 162, 70, 16, juce::Justification::centredLeft);
     }
     const auto r = juce::Rectangle<float> (22.0f, 182.0f, (float) W - 44.0f, 108.0f);
     g.setColour (theme.display);
@@ -379,6 +417,25 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState ss (g);
         g.reduceClipRegion (r.toNearestInt());
+        if (liveHasData && liveAlpha > 0.01f)
+        {
+            // Ausgang als Flaeche, Eingang als duenne Linie (Klangform, mittlere Hoehe gleich)
+            juce::Path area, line;
+            auto yv = [&] (float v) { return juce::jlimit (r.getY() + 2.0f, r.getBottom() - 2.0f, r.getCentreY() - (v - -6.0f) / 34.0f * (r.getHeight() * 0.5f - 4.0f)); };
+            area.startNewSubPath (xOf (dop::kRefGridHz[0]), r.getBottom());
+            for (int i = 0; i < dop::kRefGridPoints; ++i)
+            {
+                area.lineTo (xOf (dop::kRefGridHz[i]), yv (liveOut[(size_t) i]));
+                const juce::Point<float> pt (xOf (dop::kRefGridHz[i]), yv (liveIn[(size_t) i]));
+                if (i == 0) line.startNewSubPath (pt); else line.lineTo (pt);
+            }
+            area.lineTo (xOf (dop::kRefGridHz[dop::kRefGridPoints - 1]), r.getBottom());
+            area.closeSubPath();
+            g.setColour (theme.text.withAlpha (0.16f * liveAlpha));
+            g.fillPath (area);
+            g.setColour (theme.text.withAlpha (0.55f * liveAlpha));
+            g.strokePath (line, juce::PathStrokeType (1.0f));
+        }
         drawCurve (dop::referenceCurve (shown.effectiveRegister), -6.0f, 34.0f, theme.dim, 1.4f);
         if (shown.profile.valid)
         {

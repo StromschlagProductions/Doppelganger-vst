@@ -66,6 +66,10 @@ public:
 
     dop::Engine& getEngine() { return engine; }
 
+    // Live-Spektrum von Eingang und Ausgang (nur Message-Thread). Liefert true, wenn Signal anliegt;
+    // die Kurven sind in dB (Mittel von 100-8000 Hz = 0) auf dem Referenzgitter.
+    bool getLiveSpectrum (dop::GridCurve& inDb, dop::GridCurve& outDb);
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void timerCallback() override;
@@ -94,6 +98,18 @@ private:
     float lastAmount = -1.0f, lastLowcut = -1.0f;
     int lastRegister = -1;
     double currentFs = 48000.0;
+
+    // Live-Anzeige: Audio-Thread schreibt Mono-Ringpuffer, der Editor analysiert sie
+    static constexpr int kLiveRing = 16384, kLiveFft = 4096;
+    std::vector<float> liveIn, liveOut;
+    std::atomic<uint32_t> livePos { 0 };
+    dop::FFT liveFft;
+    std::vector<std::complex<double>> liveWork;
+    std::vector<double> liveWin, livePow;
+    struct LiveTap { int k0 = 0; std::vector<float> w; };
+    std::array<LiveTap, (size_t) dop::kRefGridPoints> liveTab;
+    double liveTabFs = 0.0;
+    void analyseLive (const std::vector<float>& ring, uint32_t pos, dop::GridCurve& out);
 
     std::atomic<float>* pAmount = nullptr;
     std::atomic<float>* pRegister = nullptr;

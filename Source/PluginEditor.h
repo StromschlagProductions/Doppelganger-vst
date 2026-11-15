@@ -81,8 +81,13 @@ private:
     HelpView helpText;
     juce::TooltipWindow tooltipWindow { this, 400 };
 
+    // Live-Spektrum (geglaettet fuer die Anzeige)
+    dop::GridCurve liveIn {}, liveOut {};
+    float liveAlpha = 0.0f;
+    bool liveHasData = false;
+
     DoppelgangerProcessor::DisplayInfo shown;
-    juce::String statusText;
+    juce::String statusText, headline;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DoppelgangerEditor)
 };

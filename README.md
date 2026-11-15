@@ -8,7 +8,7 @@ ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Status:** Version 0.3. Klangfunktion und Oberfläche sind fertig, Feinabstimmung nach Praxistests.
+**Status:** Version 1.0. Klangfunktion und Oberfläche sind fertig, Feinabstimmung nach Praxistests.
 
 ## Warum es dieses Plugin gibt
 
@@ -21,9 +21,9 @@ einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 ## Bedienung
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
-2. **Lernen** drücken und die Spur abspielen. Nach 30 Sekunden Sprache hört das Plugin selbst auf, man kann aber
-   auch vorher **Fertig** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
-3. Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
+2. **Learn** drücken und die Spur abspielen. Nach 30 Sekunden Sprache hört das Plugin selbst auf, man kann aber
+   auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
+3. Das Plugin zeigt groß an, welche Stimme es erkannt hat (**ERKANNT: Tief (Mann) · 118 Hz**). Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
    darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
 
 ## Regler (alle automatisierbar)
@@ -35,13 +35,15 @@ einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 | De-Esser | **AN / AUS** | Schaltet den De-Esser gezielt ab, zum Vergleich. |
 | De-Esser | **Stärke** | Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Vokale bleiben unberührt. |
 | De-Esser | **Frequenz** | 3–10 kHz, Standard 5,5 kHz: ab hier sucht und bearbeitet der De-Esser die S-Laute. |
-| De-Esser | **NUR S** | Spielt nur den Bereich ab, auf den der De-Esser hört (zum Einstellen der Frequenz). |
+| De-Esser | **LISTEN** | Spielt nur den Bereich ab, auf den der De-Esser hört (zum Einstellen der Frequenz). |
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 
 Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
 ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen
 Limiter; Spitzen fängt der Limiter auf dem Master ab.
+
+**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
 
 Oberfläche: Look Dunkel/Hell, Fenster frei skalierbar (50–300 %, Start bei 150 %), Hilfe über den **?**-Knopf,
 Tooltips an allen Reglern.
