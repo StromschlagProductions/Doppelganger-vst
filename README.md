@@ -1,5 +1,10 @@
 # DOPPELGANGER – Audio Drama Voice Matcher
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dunkel.png">
+  <img src="docs/logo-hell.png" alt="Stromschlag Audio" height="64">
+</picture>
+
 VST3-Insert-Effekt für Hörspiel-Produktion. Er gleicht die Klangfarbe einer Sprecherspur an eine feste Referenzstimme
 an und bringt sie gleich auf die richtige Lautheit: Mikrofon und Raum werden auf den Standard des Projekts gebracht,
 ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
@@ -17,6 +22,15 @@ angeglichen an eine männliche oder weibliche Vorlage. DOPPELGANGER kennt diese 
 einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 
 – Lars Eickstädt, Stromschlag Audio
+
+## Oberfläche
+
+| Gelernt, Live-Klangbild (dunkel) | Look hell |
+|---|---|
+| ![Dunkel](docs/oberflaeche-dunkel.png) | ![Hell](docs/oberflaeche-hell.png) |
+
+Oben steht die erkannte Stimme, darunter das Klangbild mit Referenz (grau), gelernter Stimme (blau), Korrektur (orange)
+und dem Live-Spektrum. Unten sind Klang, De-Esser und Lautheit. Die **?**-Taste öffnet die Hilfe.
 
 ## Bedienung
 
