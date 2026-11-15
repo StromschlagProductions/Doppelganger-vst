@@ -64,4 +64,4 @@ Linux-Prozessortests mit Editor benötigen einen X-Server, z. B. `xvfb-run`. Win
 
 `benchmark_engine` misst 10.000 Stereo-Blöcke à 256 Samples bei 48 kHz nach 1000 Aufwärmblöcken, getrennt für neutrale und aktive Korrektur. Durchschnitt, P99 und größter beobachteter Wert sind Mikrosekunden pro Block. Für den Vorhervergleich dieselbe Benchmarkquelle mit dem Ausgangsheader bauen. Dies sind Engine-Messungen, keine DAW-Gesamtlast oder garantierten Echtzeitgrenzen.
 
-Tatsächlich ausgeführte Prüfungen und Messwerte werden im Abschlussbericht dokumentiert.
+Tatsächlich ausgeführte Prüfungen und Messwerte stehen im [Qualitätsbericht für Version 1.1.1](QUALITY_REPORT_1.1.1.md).

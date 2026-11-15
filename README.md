@@ -13,7 +13,9 @@ ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Status:** Version 1.1. Klangfunktion und Oberfläche sind fertig, Feinabstimmung nach Praxistests.
+**Aktuelle Version: 1.1.1.** Technisch überarbeitet für robustere Audioverarbeitung, sichere Live-Anzeige und zuverlässigere Lern-/Profilverwaltung.
+
+[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.1.1.md) · [Qualitätsbericht und Testergebnisse](docs/QUALITY_REPORT_1.1.1.md)
 
 ## Warum es dieses Plugin gibt
 

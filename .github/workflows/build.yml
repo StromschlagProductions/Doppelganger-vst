@@ -61,4 +61,5 @@ jobs:
           make_latest: true
           files: |
             Doppelganger-VST3-Windows.zip
-          body: "Windows-VST3 aus dem automatischen Bau. Entpacken, Ordner Doppelganger.vst3 nach C:\\Program Files\\Common Files\\VST3 kopieren."
+          # Bei einer neuen VERSION die passenden Release-Hinweise mitpflegen.
+          body_path: docs/releases/${{ env.DOP_VERSION }}.md
