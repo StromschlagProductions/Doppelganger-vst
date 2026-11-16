@@ -1,20 +1,35 @@
 name: Windows-VST3 bauen
 
+# Teurer Windows-Lauf (Minuten zaehlen doppelt): laeuft NICHT bei jedem Commit.
+#   - von Hand: Actions > "Windows-VST3 bauen" > Run workflow (zur Abnahme);
+#     nur mit Haken "publish" auf main entsteht ein Release
+#   - bei Pull Requests erst, wenn der PR als "Ready for review" markiert wird
+# Siehe docs/CI.md
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['docs/**', 'README.md']   # Doku-Aenderungen loesen keinen neuen Bau aus
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Release mit ZIP veroeffentlichen (nur auf main)'
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
-  workflow_dispatch:
+    types: [opened, ready_for_review]   # kein Lauf bei jedem weiteren Push in den PR
+    paths-ignore: ['docs/**', '**.md']
 
 permissions:
   contents: write
 
+# Ueberholte Laeufe derselben Ref abbrechen (ausser einem Release-Lauf)
+concurrency:
+  group: windows-vst3-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   build:
+    if: github.event_name != 'pull_request' || ! github.event.pull_request.draft
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +38,14 @@ jobs:
         run: |
           $v = (Get-Content VERSION -TotalCount 1).Trim()
           "DOP_VERSION=$v" >> $env:GITHUB_ENV
+
+      # Schnell scheitern, bevor die Bauminuten verbraucht werden
+      - name: Release vorab pruefen
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -ne "refs/heads/main") { Write-Error "Release nur auf main"; exit 1 }
+          if (-not (Test-Path "docs/releases/$env:DOP_VERSION.md")) { Write-Error "docs/releases/$env:DOP_VERSION.md fehlt"; exit 1 }
 
       - name: Konfigurieren
         run: cmake -B build -A x64 -DDOPPELGANGER_PLUGIN_TESTS=ON
@@ -39,6 +62,7 @@ jobs:
           name: Doppelganger-VST3-Windows
           path: build/Doppelganger_artefacts/Release/VST3
           if-no-files-found: error
+          retention-days: 7
 
       - name: Stabilitaetstest (pluginval)
         shell: pwsh
@@ -53,7 +77,7 @@ jobs:
         run: Compress-Archive -Path "build/Doppelganger_artefacts/Release/VST3/Doppelganger.vst3" -DestinationPath "Doppelganger-VST3-Windows.zip"
 
       - name: Release mit ZIP erstellen
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.DOP_VERSION }}-b${{ github.run_number }}

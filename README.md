@@ -80,7 +80,7 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 
 ## Bauen und testen
 
-- Windows-VST3: Pull Requests werden mit Regressionstests und pluginval geprüft. Nur ein Push auf `main` erzeugt weiterhin ein Release; PRs und manuelle Prüfläufe veröffentlichen keines.
+- Windows-VST3: Der Build mit Regressionstests und pluginval Level 8 läuft aus Kostengründen nicht bei jedem Commit, sondern von Hand (Actions > „Windows-VST3 bauen“ > Run workflow) und bei Pull Requests. Ein Release entsteht nur, wenn dabei „publish“ angehakt wird. Details: [CI-Konfiguration](docs/CI.md).
 - Automatische DSP-/Transporttests ohne JUCE: `cmake -S . -B build/tests -DDOPPELGANGER_TESTS=ON`, danach `cmake --build build/tests` und `ctest --test-dir build/tests --output-on-failure`.
 - Prozessor-/State-/Editor-Tests zusammen mit dem VST3: `-DDOPPELGANGER_PLUGIN_TESTS=ON`.
 - Die bisherigen Dateitests `test_engine` und `test_learn` werden mitgebaut und mit einem synthetischen Signal automatisch ausgeführt.
