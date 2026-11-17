@@ -86,6 +86,10 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 - Die bisherigen Dateitests `test_engine` und `test_learn` werden mitgebaut und mit einem synthetischen Signal automatisch ausgeführt.
 - Architektur, Sanitizer-Aufrufe und Benchmark: [technische Prüfung](docs/TECHNICAL_REVIEW.md).
 
+## Beta-Test und Danke
+
+**SOUNDJOB / Markus Hildebrandt** – Beta-Testing
+
 ---
 
 ## Hinweis / Disclaimer
