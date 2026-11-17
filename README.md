@@ -62,9 +62,14 @@ trockene Aufnahmen bleiben die Voraussetzung. Dereverb und Denoise gehören vor 
 
 ## Oberfläche
 
-| Gelernt, Live-Klangbild mit Feinabstimmung (dunkel) | Look hell |
-|---|---|
-| ![Dunkel](docs/oberflaeche-dunkel.png) | ![Hell](docs/oberflaeche-hell.png) |
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/oberflaeche-dunkel.png" alt="Oberfläche, Look dunkel" width="100%"><br>Look dunkel</td>
+    <td width="50%" align="center"><img src="docs/oberflaeche-hell.png" alt="Oberfläche, Look hell" width="100%"><br>Look hell</td>
+  </tr>
+</table>
+
+Beide Bilder zeigen eine gelernte Stimme mit Live-Klangbild und eingeschalteter Feinabstimmung.
 
 Oben steht die erkannte Stimme, darunter das Klangbild mit Referenz (grau), gelernter Stimme (blau), Korrektur (orange)
 und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten die optionale Feinabstimmung. Die **?**-Taste öffnet die Hilfe.
