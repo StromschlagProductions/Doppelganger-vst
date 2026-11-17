@@ -13,9 +13,9 @@ ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Aktuelle Version: 1.1.1.** Technisch überarbeitet für robustere Audioverarbeitung, sichere Live-Anzeige und zuverlässigere Lern-/Profilverwaltung.
+**Aktuelle Version: 1.2.** Neu ist die optionale Feinabstimmung: fünf frei einstellbare Bänder, um das angeglichene Ergebnis direkt im Plugin nachzuschärfen.
 
-[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.1.1.md) · [Qualitätsbericht und Testergebnisse](docs/QUALITY_REPORT_1.1.1.md)
+[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.2.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
 ## Warum es dieses Plugin gibt
 
@@ -29,12 +29,12 @@ einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 
 ## Oberfläche
 
-| Gelernt, Live-Klangbild (dunkel) | Look hell |
+| Gelernt, Live-Klangbild mit Feinabstimmung (dunkel) | Look hell |
 |---|---|
 | ![Dunkel](docs/oberflaeche-dunkel.png) | ![Hell](docs/oberflaeche-hell.png) |
 
 Oben steht die erkannte Stimme, darunter das Klangbild mit Referenz (grau), gelernter Stimme (blau), Korrektur (orange)
-und dem Live-Spektrum. Unten sind Klang, De-Esser und Lautheit. Die **?**-Taste öffnet die Hilfe.
+und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten die optionale Feinabstimmung. Die **?**-Taste öffnet die Hilfe.
 
 ## Bedienung
 
@@ -57,12 +57,16 @@ und dem Live-Spektrum. Unten sind Klang, De-Esser und Lautheit. Die **?**-Taste 
 | De-Esser | **LISTEN** | Spielt nur den Bereich ab, auf den der De-Esser hört (zum Einstellen der Frequenz). |
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
+| Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |
+| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. |
 
 Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
 ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen
 Limiter; Spitzen fängt der Limiter auf dem Master ab.
 
-**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
+Die Grundverstärkung rechnet die Feinabstimmung mit ein: Hebt man Bänder an, bleibt die Spur trotzdem auf dem Ziel, nur die Klangfarbe ändert sich.
+
+**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur, hell mit Punkten 1 bis 5 die Feinabstimmung. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
 
 Oberfläche: Look Dunkel/Hell, Fenster frei skalierbar (50–300 %, Start bei 150 %), Hilfe über den **?**-Knopf,
 Tooltips an allen Reglern.

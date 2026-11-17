@@ -19,6 +19,7 @@ struct DoppelgangerProcessorTestAccess
 {
     static void tick (DoppelgangerProcessor& p) { p.timerCallback(); }
     static int interval (DoppelgangerProcessor& p) { return p.getTimerInterval(); }
+    static float takeLufs (DoppelgangerProcessor& p) { return p.takeLufs.load(); }
 };
 void process (DoppelgangerProcessor& p, juce::AudioBuffer<float>& b)
 {
@@ -126,9 +127,62 @@ void concurrentHostAndAudio()
     }
     host.join(); stop = true; audio.join(); secondAudio.join();
 }
+void fineTuning()
+{
+    auto learn = []
+    {
+        auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (48000, 128);
+        p->startLearning(); feed (*p, 48000, 5); p->finishLearning();
+        DoppelgangerProcessorTestAccess::tick (*p);
+        return p;
+    };
+    auto set = [] (DoppelgangerProcessor& p, const char* id, float v)
+    { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); DoppelgangerProcessorTestAccess::tick (p); };
+
+    auto p = learn();
+    const float base = DoppelgangerProcessorTestAccess::takeLufs (*p);
+    CHECK (base > -99.0f);
+    set (*p, "fineDb1", 6.0f);                                               // Band 1 (100 Hz): Testsignal hat dort die meiste Energie
+    CHECK (DoppelgangerProcessorTestAccess::takeLufs (*p) == base);          // aus: keine Wirkung
+    set (*p, "fineOn", 1.0f);
+    const float boosted = DoppelgangerProcessorTestAccess::takeLufs (*p);
+    CHECK (boosted > base + 3.0f && boosted < base + 6.5f);
+    juce::MemoryBlock state; p->getStateInformation (state);
+    set (*p, "fineOn", 0.0f);
+    CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*p) - base) < 1e-4f);
+    p->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*p);
+    CHECK (p->apvts.getRawParameterValue ("fineOn")->load() > 0.5f);
+    CHECK (std::abs (p->apvts.getRawParameterValue ("fineDb1")->load() - 6.0f) < 1e-4f);
+    CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*p) - boosted) < 1e-3f);
+
+    // Projekt aus 1.1.1 (ohne Feinabstimmungs-Parameter) in neuer Instanz: Feinabstimmung aus und flach, gleiche Lautheit
+    {
+        auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()); CHECK (xml != nullptr);
+        auto tree = juce::ValueTree::fromXml (*xml);
+        for (int i = tree.getNumChildren(); --i >= 0;)
+            if (tree.getChild (i).getProperty ("id").toString().startsWith ("fine")) tree.removeChild (i, nullptr);
+        juce::MemoryBlock old; auto oldXml = tree.createXml(); juce::AudioProcessor::copyXmlToBinary (*oldXml, old);
+        auto fresh = std::make_unique<DoppelgangerProcessor>(); fresh->prepareToPlay (48000, 128);
+        fresh->setStateInformation (old.getData(), (int) old.getSize()); DoppelgangerProcessorTestAccess::tick (*fresh);
+        CHECK (fresh->apvts.getRawParameterValue ("fineOn")->load() < 0.5f);
+        for (int k = 1; k <= dop::kFineBands; ++k) CHECK (fresh->apvts.getRawParameterValue ("fineDb" + juce::String (k))->load() == 0.0f);
+        CHECK (fresh->getDisplayInfo().profile.valid);
+        CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*fresh) - base) < 1e-3f);
+    }
+
+    // Ausgang: mit und ohne Feinabstimmung gleich laut, weil die Grundverstaerkung ausgleicht
+    auto plain = learn(), tuned = learn();
+    for (auto* q : { plain.get(), tuned.get() }) set (*q, "leveler", 0.0f);
+    set (*tuned, "fineDb1", 6.0f); set (*tuned, "fineOn", 1.0f);
+    feed (*plain, 48000, 2.0); feed (*tuned, 48000, 2.0);
+    const float a = plain->getEngine().meterOutLufs.load(), b = tuned->getEngine().meterOutLufs.load();
+    // Ohne Ausgleich laege der Ausgang gut 4 dB hoeher. Das Testsignal besteht aus drei Sinustoenen, der unguenstigste Fall
+    // fuer die Schaetzung auf dem Spektralgitter (hier 0,6 dB Rest); auf echter Sprache blieb der Rest bei hoechstens 0,5 dB.
+    CHECK (a > -60.0f && std::abs (a - b) < 1.0f);
+}
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); rateAndDisplay(); concurrentHostAndAudio();
+    stateAndLearning(); fineTuning(); rateAndDisplay(); concurrentHostAndAudio();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

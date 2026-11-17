@@ -597,6 +597,7 @@ inline GridCurve correctionCurve (const GridCurve& take, int reg, float amount, 
 //  Filterbank: 26 Glockenfilter im Terzabstand (50 Hz - 16 kHz), Verstaerkungen per Ausgleichsrechnung
 //==============================================================================
 constexpr int kBands = 26;
+constexpr int kFineBands = 5;   // Feinabstimmung: Anzahl Glockenfilter (Standard alle 0 dB)
 constexpr double kBandQ = 2.1;
 
 inline double bandFreq (int k) { return 50.0 * std::pow (2.0, k / 3.0); }
@@ -729,6 +730,22 @@ inline BankDesign fitBank (const GridCurve& target, double fs)
 //  Lautheitsaenderung durch den EQ abschaetzen (damit die Grundverstaerkung von Anfang an stimmt)
 //  Spektrum der gelernten Stimme (Leistungsdichte auf dem Log-Gitter) mit K-Gewichtung, mit und ohne Korrektur.
 //==============================================================================
+// Frequenzgang der Feinabstimmung auf dem Referenzgitter (dB), fuer die Lautheitsrechnung
+inline GridCurve fineCurveDb (bool on, const std::array<float, kFineBands>& hz, const std::array<float, kFineBands>& db,
+                              const std::array<float, kFineBands>& q, double fs)
+{
+    GridCurve out {};
+    if (! on) return out;
+    for (int k = 0; k < kFineBands; ++k)
+    {
+        const auto kk = (size_t) k;
+        if (db[kk] == 0.0f) continue;
+        const Biquad c = peaking (fs, hz[kk], q[kk], db[kk]);
+        for (int i = 0; i < kRefGridPoints; ++i) out[(size_t) i] += (float) magnitudeDb (c, fs, kRefGridHz[i]);
+    }
+    return out;
+}
+
 inline float eqLoudnessDeltaDb (const GridCurve& takeDb, const GridCurve& corrDb)
 {
     const Biquad ks = kWeightShelf (48000.0), kh = kWeightHighPass (48000.0);
@@ -750,6 +767,10 @@ inline float eqLoudnessDeltaDb (const GridCurve& takeDb, const GridCurve& corrDb
 struct EngineParams
 {
     float lowcutHz = 80.0f;      // <= 20 = aus
+    bool fineOn = false;                              // Feinabstimmung an
+    std::array<float, kFineBands> fineHz { 100.0f, 300.0f, 1000.0f, 3000.0f, 8000.0f };
+    std::array<float, kFineBands> fineDb {};          // -12 .. +12 dB
+    std::array<float, kFineBands> fineQ { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     bool deessOn = true;
     float deess = 0.25f;         // Staerke 0..1
     float deessFreqHz = 5500.0f; // ab hier wirkt der De-Esser
@@ -801,6 +822,7 @@ public:
         bankQueued = false;
         for (auto& ch : chans)
         {
+            for (auto& st : ch.fine) st.reset();
             for (auto& s : ch.lc) s.reset();
             for (auto& s : ch.eq[0]) s.reset();
             for (auto& s : ch.eq[1]) s.reset();
@@ -821,13 +843,34 @@ public:
     void setParams (EngineParams p)
     {
         p.lowcutHz = finiteClamp (p.lowcutHz, 20, 200, 80);
+        for (int k = 0; k < kFineBands; ++k)
+        {
+            p.fineHz[(size_t) k] = finiteClamp (p.fineHz[(size_t) k], 20, 20000, 1000);
+            p.fineDb[(size_t) k] = finiteClamp (p.fineDb[(size_t) k], -12, 12, 0);
+            p.fineQ[(size_t) k] = finiteClamp (p.fineQ[(size_t) k], 0.3f, 8, 1);
+        }
         p.deess = finiteClamp (p.deess, 0, 1, 0.25f);
         p.deessFreqHz = finiteClamp (p.deessFreqHz, 3000, 10000, 5500);
         p.leveler = finiteClamp (p.leveler, 0, 1, 0.5f);
         p.targetLufs = finiteClamp (p.targetLufs, -30, -14, -23);
         p.takeLufs = finiteClamp (p.takeLufs, -100, 24, -100);
         p.rideOffsetDb = finiteClamp (p.rideOffsetDb, -8, 0, -2.5f);
+        // Feinabstimmung: Koeffizienten nur bei Aenderung neu rechnen
+        const bool fineChanged = p.fineOn != params.fineOn || p.fineHz != params.fineHz
+                                 || p.fineDb != params.fineDb || p.fineQ != params.fineQ;
         params = p;
+        if (fineChanged)
+        {
+            bool any = false;
+            for (int k = 0; k < kFineBands; ++k)
+            {
+                const auto kk = (size_t) k;
+                fineCoef[kk] = peaking (fs, p.fineHz[kk], p.fineQ[kk], p.fineDb[kk]);
+                any = any || p.fineDb[kk] != 0.0f;
+            }
+            fineActive = p.fineOn && any;
+            if (! fineActive) for (auto& ch : chans) for (auto& st : ch.fine) st.reset();   // kein Nachklang beim Wiedereinschalten
+        }
         if (p.lowcutHz != lastLowcut)
         {
             lastLowcut = p.lowcutHz;
@@ -896,6 +939,8 @@ public:
                     if (! neutral[1 - cur]) for (int k = 0; k < kBands; ++k) e2 = ch.eq[1 - cur][(size_t) k].process (bank[1 - cur][(size_t) k], e2);
                     e = e + a * (e2 - e);
                 }
+                if (fineActive)
+                    for (int k = 0; k < kFineBands; ++k) e = ch.fine[(size_t) k].process (fineCoef[(size_t) k], e);
                 y[c] = e;
                 hi[c] = ch.dh.process (deessHp, e);
                 hiP += hi[c] * hi[c];
@@ -1018,10 +1063,13 @@ private:
         std::array<BiquadState, 2> lc;
         std::array<std::array<BiquadState, kBands>, 2> eq;
         BiquadState dh, ds, k1, k2, o1, o2;
+        std::array<BiquadState, kFineBands> fine;
     };
 
     double fs = 48000.0;
     EngineParams params;
+    std::array<Biquad, kFineBands> fineCoef {};
+    bool fineActive = false;
     std::array<Chan, kMaxCh> chans;
     Biquad lc[2], kShelf, kHp, deessHp, shelf;
     bool lcOn = true;

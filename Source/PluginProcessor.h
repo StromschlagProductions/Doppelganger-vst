@@ -82,6 +82,7 @@ private:
     void timerCallback() override;
     void drainFifo();
     void redesign();
+    void updateTakeLoudness();          // Lautheit nach EQ + Feinabstimmung (Aufrufer haelt stateLock)
     int effectiveRegister() const;
 
     dop::Engine engine;
@@ -129,6 +130,9 @@ private:
     std::atomic<float>* pDeessOn = nullptr;
     std::atomic<float>* pDeessFreq = nullptr;
     std::atomic<float>* pDeessListen = nullptr;
+    std::atomic<float>* pFineOn = nullptr;
+    std::array<std::atomic<float>*, dop::kFineBands> pFineHz {}, pFineDb {}, pFineQ {};
+    std::array<float, 3 * dop::kFineBands + 1> lastFineSnap {};   // Stand, bei dem die Lautheit zuletzt berechnet wurde
     std::atomic<float> takeLufs { -100.0f }, rideOffset { -2.5f };
     std::atomic<float>* pTarget = nullptr;
 

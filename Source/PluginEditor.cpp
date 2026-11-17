@@ -61,7 +61,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "angeglichen, die eigene Farbe der Stimme bleibt. Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt. "
           "Die Referenzen enden bei 16 kHz, darüber bleibt der Take unverändert.");
     body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz.");
-    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe). Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
+    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe), hell mit Punkten 1 bis 5 die Feinabstimmung. Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
 
     head ("DE-ESSER");
     body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 dB, "
@@ -72,6 +72,13 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Bleibt die Anzeige leer, erkennt er keine S-Laute, dann ist die Stärke zu niedrig oder die Frequenz passt nicht.");
     body ("Listen: spielt nur den Bereich ab, auf den der De-Esser hört. So findest du schnell die richtige Frequenz. Danach wieder ausschalten.");
     note ("Klingen die S-Laute eines Takes ohnehin schwach oder lispelnd, den De-Esser ausschalten.");
+
+    head ("FEINABSTIMMUNG");
+    body ("Optional: fünf frei einstellbare Glockenfilter nach dem Angleich. Damit lässt sich die Spur direkt im Plugin nachschärfen, ohne zusätzlichen EQ in der Slotkette. "
+          "Standard: alle Bänder 0 dB, Feinabstimmung aus, der Klang bleibt dann unverändert.");
+    body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. "
+          "Ziehen schaltet die Feinabstimmung automatisch ein. Die Regler darunter stellen dieselben Werte als Zahl ein.");
+    body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe.");
 
     head ("LAUTHEIT");
     body ("Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
@@ -87,6 +94,175 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Lars Eickstädt, Stromschlag Audio");
     note ("Gebaut mit JUCE. Lautheitsmessung nach ITU-R BS.1770 / EBU R128.");
     return s;
+}
+
+//==============================================================================
+//  Feinabstimmung in der Anzeige. Koordinaten wie die Anzeige: 40 Hz bis 20 kHz logarithmisch, ±12 dB.
+//==============================================================================
+namespace
+{
+constexpr float kFineMinHz = 40.0f, kFineMaxHz = 20000.0f, kFineRangeDb = 12.0f;
+}
+
+FineNodes::FineNodes (juce::AudioProcessorValueTreeState& s)
+{
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const auto n = juce::String (k + 1);
+        auto& b = bands[(size_t) k];
+        b.hz = s.getParameter ("fineHz" + n);
+        b.db = s.getParameter ("fineDb" + n);
+        b.q = s.getParameter ("fineQ" + n);
+    }
+    on = s.getParameter ("fineOn");
+}
+
+bool FineNodes::active() const { return on != nullptr && on->getValue() > 0.5f; }
+
+float FineNodes::valueOf (juce::RangedAudioParameter* p) const { return p->convertFrom0to1 (p->getValue()); }
+
+void FineNodes::setValue (juce::RangedAudioParameter* p, float v)
+{
+    p->setValueNotifyingHost (p->convertTo0to1 (v));
+}
+
+juce::Point<float> FineNodes::nodeAt (int k) const
+{
+    const auto& b = bands[(size_t) k];
+    const float hz = juce::jlimit (kFineMinHz, kFineMaxHz, valueOf (b.hz));
+    const float x = getWidth() * std::log2 (hz / kFineMinHz) / std::log2 (kFineMaxHz / kFineMinHz);
+    return { x, yOfDb (valueOf (b.db)) };
+}
+
+float FineNodes::yOfDb (float db) const
+{
+    const float ppd = (getHeight() * 0.5f - 6.0f) / kFineRangeDb;
+    return getHeight() * 0.5f - db * ppd;
+}
+
+float FineNodes::dbOfY (float y) const
+{
+    const float ppd = (getHeight() * 0.5f - 6.0f) / kFineRangeDb;
+    return juce::jlimit (-kFineRangeDb, kFineRangeDb, std::round ((getHeight() * 0.5f - y) / ppd * 10.0f) / 10.0f);
+}
+
+int FineNodes::nearestBand (juce::Point<float> p, float maxDist) const
+{
+    int best = -1;
+    float bestD = maxDist;
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const float d = nodeAt (k).getDistanceFrom (p);
+        if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+}
+
+void FineNodes::paint (juce::Graphics& g)
+{
+    const float w = (float) getWidth(), h = (float) getHeight();
+    const bool on_ = active();
+
+    // Mittellinie = 0 dB
+    g.setColour (dim.withAlpha (0.35f));
+    g.drawHorizontalLine ((int) (h * 0.5f), 0.0f, w);
+
+    // Frequenzgang der Feinabstimmung als Summe der Baender
+    std::array<dop::Biquad, dop::kFineBands> coefs {};
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const auto& b = bands[(size_t) k];
+        coefs[(size_t) k] = dop::peaking (48000.0, valueOf (b.hz), valueOf (b.q), valueOf (b.db));
+    }
+    juce::Path curve;
+    for (int i = 0; i <= 120; ++i)
+    {
+        const float f = kFineMinHz * std::pow (kFineMaxHz / kFineMinHz, (float) i / 120.0f);
+        double sum = 0.0;
+        if (on_)
+            for (const auto& c : coefs) sum += dop::magnitudeDb (c, 48000.0, f);
+        const float x = w * (float) i / 120.0f;
+        const float y = yOfDb ((float) sum);
+        if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
+    }
+    g.setColour (on_ ? text.withAlpha (0.9f) : dim.withAlpha (0.4f));   // Textfarbe: klar getrennt von der orangen Korrektur
+    g.strokePath (curve, juce::PathStrokeType (1.6f));
+
+    // Knoten, die man ziehen kann
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const auto p = nodeAt (k);
+        const bool sel = k == selected;
+        const float r = sel ? 7.0f : 5.5f;
+        g.setColour (on_ ? text : dim);
+        g.fillEllipse (p.x - r, p.y - r, 2 * r, 2 * r);
+        if (on_) { g.setColour (accent); g.drawEllipse (p.x - r, p.y - r, 2 * r, 2 * r, 1.6f); }
+        g.setColour (text.withAlpha (on_ ? 0.95f : 0.5f));
+        g.drawFittedText (juce::String (k + 1), (int) p.x - 8, (int) p.y - 22, 16, 12, juce::Justification::centred, 1);
+    }
+}
+
+void FineNodes::mouseDown (const juce::MouseEvent& e)
+{
+    selected = nearestBand (e.position, 18.0f);
+    if (selected < 0) return;
+    const auto& b = bands[(size_t) selected];
+    b.hz->beginChangeGesture();
+    b.db->beginChangeGesture();
+    b.q->beginChangeGesture();
+    on->beginChangeGesture();
+    dragging = true;
+}
+
+void FineNodes::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! dragging || selected < 0) return;
+    const auto& b = bands[(size_t) selected];
+    const float ratio = juce::jlimit (0.0f, 1.0f, e.position.x / (float) getWidth());
+    const float hz = kFineMinHz * std::pow (kFineMaxHz / kFineMinHz, ratio);
+    setValue (b.hz, juce::jlimit (kFineMinHz, kFineMaxHz, hz));
+    setValue (b.db, dbOfY (e.position.y));
+    if (! active()) setValue (on, 1.0f);   // Ziehen schaltet die Feinabstimmung ein
+    repaint();
+}
+
+void FineNodes::mouseUp (const juce::MouseEvent&)
+{
+    if (dragging && selected >= 0)
+    {
+        const auto& b = bands[(size_t) selected];
+        b.hz->endChangeGesture();
+        b.db->endChangeGesture();
+        b.q->endChangeGesture();
+        on->endChangeGesture();
+    }
+    dragging = false;
+    selected = -1;
+    repaint();
+}
+
+void FineNodes::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    const int k = nearestBand (e.position, 18.0f);
+    if (k < 0) return;
+    const auto& b = bands[(size_t) k];
+    b.db->beginChangeGesture();
+    setValue (b.db, 0.0f);
+    b.db->endChangeGesture();
+    repaint();
+}
+
+void FineNodes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    const int k = nearestBand (e.position, 18.0f);
+    if (k < 0 || wheel.deltaY == 0.0f) return;
+    const auto& b = bands[(size_t) k];
+    const float q = juce::jlimit (0.3f, 8.0f, valueOf (b.q) * std::pow (2.0f, wheel.deltaY * 2.0f));
+    b.q->beginChangeGesture();
+    setValue (b.q, std::round (q * 100.0f) / 100.0f);
+    b.q->endChangeGesture();
+    if (! active()) { on->beginChangeGesture(); setValue (on, 1.0f); on->endChangeGesture(); }
+    repaint();
 }
 
 DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcessorEditor (&p), proc (p)
@@ -139,6 +315,34 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     content.addAndMakeVisible (deessOnButton);
     content.addAndMakeVisible (deessListenButton);
 
+    fineOnButton.setClickingTogglesState (true);
+    fineOnButton.setTooltip (u8 ("Feinabstimmung an- und ausschalten. Aus: der Klang bleibt wie nach dem Angleich."));
+    fineOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "fineOn", fineOnButton);
+    content.addAndMakeVisible (fineOnButton);
+    content.addAndMakeVisible (fineNodes);
+    auto fine = [this] (juce::Slider& s, std::unique_ptr<APVTS::SliderAttachment>& att, const juce::String& id,
+                        const juce::String& tip, double reset)
+    {
+        s.setSliderStyle (juce::Slider::LinearHorizontal);
+        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 62, 18);   // Text kommt vom Parameter (Hz/kHz, dB)
+        s.setTooltip (tip);
+        s.setDoubleClickReturnValue (true, reset);
+        content.addAndMakeVisible (s);
+        att = std::make_unique<APVTS::SliderAttachment> (proc.apvts, id, s);
+    };
+    const double fineDefaultHz[dop::kFineBands] { 100.0, 300.0, 1000.0, 3000.0, 8000.0 };
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        auto& b = fineBands[(size_t) k];
+        const auto n = juce::String (k + 1);
+        b.name.setText ("BAND " + n, juce::dontSendNotification);
+        b.name.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        content.addAndMakeVisible (b.name);
+        fine (b.freq, b.aFreq, "fineHz" + n, u8 ("Mittenfrequenz des Bands, 40 Hz bis 20 kHz. Doppelklick setzt zurück."), fineDefaultHz[k]);
+        fine (b.gain, b.aGain, "fineDb" + n, u8 ("Anhebung oder Absenkung des Bands, ±12 dB. Doppelklick: 0 dB"), 0.0);
+        fine (b.q, b.aQ, "fineQ" + n, u8 ("Güte: klein = breit, groß = schmal. Doppelklick: 1,00"), 1.0);
+    }
+
     themeButton.onClick = [this]
     {
         theme = theme.dark ? lightTheme() : darkTheme();
@@ -160,9 +364,10 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     applyTheme();
 
     const int startW = juce::roundToInt (kBaseW * kStartScale), startH = juce::roundToInt (kBaseH * kStartScale);
-    const int savedW = (int) proc.getUiProperty (kUiWProp, startW);
-    const int savedH = (int) proc.getUiProperty (kUiHProp, startH);
-    setSize (juce::jlimit (kBaseW / 2, kBaseW * 3, savedW), juce::jlimit (kBaseH / 2, kBaseH * 3, savedH));
+    // Hoehe immer aus der Breite: Projekte vor 1.2 haben die Groesse im alten Seitenverhaeltnis (680 x 450) gespeichert
+    juce::ignoreUnused (startH);
+    const int savedW = juce::jlimit (kBaseW / 2, kBaseW * 3, (int) proc.getUiProperty (kUiWProp, startW));
+    setSize (savedW, juce::roundToInt (savedW * (double) kBaseH / (double) kBaseW));
     sizeReady = true;
     timerCallback();
     startTimerHz (25);
@@ -198,6 +403,8 @@ void DoppelgangerEditor::updateLearnButton()
     learnButton.setToggleState (learning, juce::dontSendNotification);
     forgetButton.setEnabled (shown.profile.valid || learning);
     deessOnButton.setButtonText (deessOnButton.getToggleState() ? "AN" : "AUS");
+    fineOnButton.setButtonText (fineOnButton.getToggleState() ? "AN" : "AUS");
+    fineNodes.repaint();
 }
 
 void DoppelgangerEditor::timerCallback()
@@ -300,6 +507,12 @@ void DoppelgangerEditor::applyTheme()
     look.setColour (juce::Label::textColourId, theme.text);
     for (auto* k : { &amountKnob, &lowcutKnob, &deessKnob, &deessFreqKnob, &levelerKnob, &targetKnob })
         k->label.setColour (juce::Label::textColourId, theme.dim);
+    for (auto& b : fineBands)
+        b.name.setColour (juce::Label::textColourId, theme.dim);
+    fineNodes.accent = theme.accent;
+    fineNodes.text = theme.text;
+    fineNodes.dim = theme.dim;
+    fineNodes.repaint();
     look.setColour (juce::TextButton::buttonColourId, theme.dark ? theme.bg : theme.display);
     look.setColour (juce::TextButton::buttonOnColourId, theme.accent);
     look.setColour (juce::TextButton::textColourOffId, theme.text);
@@ -423,6 +636,8 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
         g.drawText ("LIVE:  EINGANG", 112, 162, 100, 16, juce::Justification::centredLeft);
         g.setColour (theme.text);
         g.drawText ("AUSGANG", 214, 162, 70, 16, juce::Justification::centredLeft);
+        if (fineOnButton.getToggleState())
+            g.drawText ("FEIN", lx - 46, 162, 40, 16, juce::Justification::centredLeft);
     }
     const auto r = juce::Rectangle<float> (22.0f, 182.0f, (float) W - 44.0f, 108.0f);
     g.setColour (theme.display);
@@ -496,6 +711,7 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     card (12.0f, 310.0f, 172.0f, 128.0f, "KLANG");
     card (194.0f, 310.0f, 292.0f, 128.0f, "DE-ESSER");
     card (496.0f, 310.0f, 172.0f, 128.0f, "LAUTHEIT");
+    card (12.0f, 450.0f, (float) W - 24.0f, 108.0f, "FEINABSTIMMUNG");
 
     // De-Esser-Anzeige: Balken (aktuelle Absenkung, haengt von oben) + Verlauf der letzten Sekunden
     {
@@ -533,7 +749,7 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
         g.drawText (u8 ("−12 dB"), 424, (int) bot + 1, 58, 11, juce::Justification::centredLeft);
         g.setColour (deessHoldDb > 0.05f ? theme.text : theme.dim);
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-        g.drawText (deessHoldDb > 0.05f ? u8 ("−") + juce::String (deessHoldDb, 1) + " dB" : juce::String ("S: –"),
+        g.drawText (deessHoldDb > 0.05f ? u8 ("−") + juce::String (deessHoldDb, 1) + " dB" : u8 ("S: –"),
                     442, (int) top - 12, 40, 12, juce::Justification::centredRight);
     }
 }
@@ -572,6 +788,19 @@ void DoppelgangerEditor::resized()
     deessOnButton.setBounds (358, 340, 60, 28);
     deessListenButton.setBounds (358, 378, 60, 28);
     place (levelerKnob, 500, 330);
+
+    // Feinabstimmung unten: Schalter links, fuenf Baender mit Frequenz, Verstaerkung und Guete
+    fineOnButton.setBounds (24, 478, 70, 28);
+    fineNodes.setBounds (22, 182, w - 44, 108);
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        auto& b = fineBands[(size_t) k];
+        const int x = 104 + k * 113;
+        b.name.setBounds (x, 476, 109, 14);
+        b.freq.setBounds (x, 492, 109, 18);
+        b.gain.setBounds (x, 512, 109, 18);
+        b.q.setBounds (x, 532, 109, 18);
+    }
     place (targetKnob, 580, 330);
 
     helpScroll.toFront (false);

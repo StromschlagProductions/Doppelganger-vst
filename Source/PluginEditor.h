@@ -35,6 +35,36 @@ public:
     }
 };
 
+// Feinabstimmung in der Anzeige: Baender ziehen (waagerecht Frequenz, senkrecht Verstaerkung, Mausrad Guete)
+class FineNodes : public juce::Component
+{
+public:
+    explicit FineNodes (juce::AudioProcessorValueTreeState& s);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    juce::Colour accent, text, dim;
+
+private:
+    struct Band { juce::RangedAudioParameter* hz = nullptr; juce::RangedAudioParameter* db = nullptr; juce::RangedAudioParameter* q = nullptr; };
+    std::array<Band, dop::kFineBands> bands {};
+    juce::RangedAudioParameter* on = nullptr;
+    int selected = -1;
+    bool dragging = false;
+
+    bool active() const;
+    float valueOf (juce::RangedAudioParameter*) const;
+    void setValue (juce::RangedAudioParameter*, float v);
+    juce::Point<float> nodeAt (int k) const;
+    int nearestBand (juce::Point<float> p, float maxDist) const;
+    float yOfDb (float db) const;
+    float dbOfY (float y) const;
+};
+
 class DoppelgangerEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -53,7 +83,7 @@ private:
     static Theme darkTheme();
     static Theme lightTheme();
 
-    static constexpr int kBaseW = 680, kBaseH = 450;
+    static constexpr int kBaseW = 680, kBaseH = 566;
     static constexpr float kStartScale = 1.5f;   // beim ersten Oeffnen 150 %
 
     DoppelgangerProcessor& proc;
@@ -72,6 +102,17 @@ private:
     };
     void setupKnob (Knob&, const juce::String& paramId, const juce::String& title, const juce::String& tip, double resetValue);
     Knob amountKnob, lowcutKnob, deessKnob, deessFreqKnob, levelerKnob, targetKnob;
+
+    struct FineBand
+    {
+        juce::Label name;
+        juce::Slider freq, gain, q;
+        std::unique_ptr<APVTS::SliderAttachment> aFreq, aGain, aQ;
+    };
+    std::array<FineBand, (size_t) dop::kFineBands> fineBands;
+    juce::TextButton fineOnButton;
+    std::unique_ptr<APVTS::ButtonAttachment> fineOnAtt;
+    FineNodes fineNodes { proc.apvts };
 
     juce::TextButton learnButton, forgetButton, deessOnButton, deessListenButton, themeButton, helpButton;
     std::unique_ptr<APVTS::ButtonAttachment> deessOnAtt, deessListenAtt;

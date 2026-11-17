@@ -17,6 +17,14 @@ DoppelgangerProcessor::DoppelgangerProcessor()
     pDeessOn = apvts.getRawParameterValue ("deessOn");
     pDeessFreq = apvts.getRawParameterValue ("deessFreq");
     pDeessListen = apvts.getRawParameterValue ("deessListen");
+    pFineOn = apvts.getRawParameterValue ("fineOn");
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const auto n = juce::String (k + 1);
+        pFineHz[(size_t) k] = apvts.getRawParameterValue ("fineHz" + n);
+        pFineDb[(size_t) k] = apvts.getRawParameterValue ("fineDb" + n);
+        pFineQ[(size_t) k] = apvts.getRawParameterValue ("fineQ" + n);
+    }
     learner.prepare (currentFs);
     startTimer (200); // no profile/learning: only lightweight parameter polling
 
@@ -71,6 +79,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoppelgangerProcessor::creat
         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
             { return String (v, 1) + " LUFS"; })));
 
+    // Feinabstimmung: fuenf optionale Glockenfilter, Standard flach (0 dB)
+    params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "fineOn", 1 }, "Feinabstimmung an", false));
+    const float fineDefaults[dop::kFineBands] { 100.0f, 300.0f, 1000.0f, 3000.0f, 8000.0f };
+    for (int k = 0; k < dop::kFineBands; ++k)
+    {
+        const auto n = String (k + 1);
+        NormalisableRange<float> fRange (40.0f, 20000.0f, 1.0f);
+        fRange.setSkewForCentre (1000.0f);
+        params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "fineHz" + n, 1 }, "Band " + n + " Frequenz", fRange, fineDefaults[k],
+            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+                { return v >= 1000.0f ? String (v / 1000.0f, 2) + " kHz" : String (juce::roundToInt (v)) + " Hz"; })));
+        params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "fineDb" + n, 1 }, "Band " + n + " Gain",
+            NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+                { return String (v, 1) + " dB"; })));
+        params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "fineQ" + n, 1 }, "Band " + n + String (CharPointer_UTF8 (" Güte")),
+            NormalisableRange<float> (0.3f, 8.0f, 0.01f, 0.5f), 1.0f,
+            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+                { return String (v, 2); })));
+    }
+
     return { params.begin(), params.end() };
 }
 
@@ -117,6 +146,13 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     p.rideOffsetDb = rideOffset.load();
     p.leveler = pLeveler->load() * 0.01f;
     p.targetLufs = pTarget->load();
+    p.fineOn = pFineOn->load() > 0.5f;
+    for (size_t k = 0; k < (size_t) dop::kFineBands; ++k)
+    {
+        p.fineHz[k] = pFineHz[k]->load();
+        p.fineDb[k] = pFineDb[k]->load();
+        p.fineQ[k] = pFineQ[k]->load();
+    }
     engine.setParams (p);
 
     {
@@ -237,6 +273,20 @@ void DoppelgangerProcessor::timerCallback()
         designDirty = true;
     if (designDirty.load())
         redesign();
+
+    // Feinabstimmung aendert nur die Grundverstaerkung, kein Neudesign des Angleichs
+    {
+        std::array<float, 3 * dop::kFineBands + 1> now {};
+        now[0] = pFineOn->load() > 0.5f ? 1.0f : 0.0f;
+        for (size_t k = 0; k < (size_t) dop::kFineBands; ++k)
+        {
+            now[1 + 3 * k] = pFineHz[k]->load();
+            now[2 + 3 * k] = pFineDb[k]->load();
+            now[3 + 3 * k] = pFineQ[k]->load();
+        }
+        if (now != lastFineSnap)
+            updateTakeLoudness();
+    }
     const int interval = isLearning() || info.profile.valid ? 33 : 200;
     if (getTimerInterval() != interval) startTimer (interval);
 }
@@ -246,6 +296,36 @@ int DoppelgangerProcessor::effectiveRegister() const
     const int choice = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
     if (choice > 0) return choice - 1;
     return dop::registerForPitch (info.profile.pitchHz);
+}
+
+void DoppelgangerProcessor::updateTakeLoudness()
+{
+    // Lautheit der Spur nach Angleich und Feinabstimmung: daraus ergibt sich die feste Grundverstaerkung
+    dop::GridCurve total = info.correction;
+    dop::GridCurve fine {};
+    std::array<float, dop::kFineBands> hz {}, db {}, q {};
+    for (size_t k = 0; k < (size_t) dop::kFineBands; ++k)
+    {
+        hz[k] = pFineHz[k]->load();
+        db[k] = pFineDb[k]->load();
+        q[k] = pFineQ[k]->load();
+    }
+    const bool fineOn = pFineOn->load() > 0.5f;
+    fine = dop::fineCurveDb (fineOn, hz, db, q, currentFs);
+    for (size_t i = 0; i < total.size(); ++i) total[i] += fine[i];
+
+    if (info.profile.valid && info.profile.loudnessLufs > -99.0f)
+        takeLufs = info.profile.loudnessLufs + dop::eqLoudnessDeltaDb (info.profile.curveDb, total);
+    else
+        takeLufs = -100.0f;
+
+    lastFineSnap[0] = fineOn ? 1.0f : 0.0f;
+    for (size_t k = 0; k < (size_t) dop::kFineBands; ++k)
+    {
+        lastFineSnap[1 + 3 * k] = hz[k];
+        lastFineSnap[2 + 3 * k] = db[k];
+        lastFineSnap[3 + 3 * k] = q[k];
+    }
 }
 
 void DoppelgangerProcessor::redesign()
@@ -268,11 +348,7 @@ void DoppelgangerProcessor::redesign()
             d = dop::fitBank (info.correction, currentFs);
             info.fitErrorDb = d.maxErrorDb;
         }
-        // Lautheit der Spur nach dem EQ: daraus ergibt sich die feste Grundverstaerkung
-        if (info.profile.valid && info.profile.loudnessLufs > -99.0f)
-            takeLufs = info.profile.loudnessLufs + dop::eqLoudnessDeltaDb (info.profile.curveDb, info.correction);
-        else
-            takeLufs = -100.0f;
+        updateTakeLoudness();
         rideOffset = info.profile.valid ? info.profile.typicalOffsetDb : -2.5f;
         info.needsRelearnForLoudness = info.profile.valid && info.profile.loudnessLufs <= -99.0f;
     }

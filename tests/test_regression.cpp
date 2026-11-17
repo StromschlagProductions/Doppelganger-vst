@@ -145,4 +145,45 @@ void learningTests()
         p.curveDb[0] = std::numeric_limits<float>::quiet_NaN(); CHECK (! dop::isValidProfile (p));
     }
 }
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+void fineTests()
+{
+    const int n = 48000;
+    std::vector<float> x (n);
+    for (int i = 0; i < n; ++i) x[(size_t) i] = (float) (0.1 * std::sin (2 * dop::kPi * 1000.0 * i / 48000.0));
+    auto run = [&] (const dop::EngineParams& p)
+    {
+        dop::Engine e;
+        e.prepare (48000);
+        e.setParams (p);
+        e.setBank (dop::flatBank().coeffs);
+        e.reset();
+        auto y = x;
+        float* ptr[] = { y.data() };
+        e.process (ptr, 1, n, nullptr);
+        return y;
+    };
+    auto rmsDb = [&] (const std::vector<float>& v)
+    {
+        double acc = 0;
+        for (int i = n / 2; i < n; ++i) acc += (double) v[(size_t) i] * v[(size_t) i];
+        return 10.0 * std::log10 (acc / (n / 2));
+    };
+    const auto base = run (bypass());
+
+    dop::EngineParams off = bypass();                       // Feinabstimmung aus
+    CHECK (run (off) == base);
+    dop::EngineParams flat = bypass(); flat.fineOn = true;  // an, aber alle Baender 0 dB
+    CHECK (run (flat) == base);
+    dop::EngineParams boost = bypass(); boost.fineOn = true;
+    boost.fineHz[2] = 1000.0f; boost.fineDb[2] = 6.0f; boost.fineQ[2] = 1.0f;
+    const double gainDb = rmsDb (run (boost)) - rmsDb (base);
+    CHECK (std::abs (gainDb - 6.0) < 0.3);                  // Sinus genau auf der Mittenfrequenz
+    dop::EngineParams nonFinite = bypass(); nonFinite.fineOn = true;
+    nonFinite.fineDb[1] = std::numeric_limits<float>::quiet_NaN();
+    CHECK (run (nonFinite) == base);                        // ungueltiger Wert faellt auf 0 dB zurueck
+    dop::EngineParams extreme = bypass(); extreme.fineOn = true;
+    for (int k = 0; k < dop::kFineBands; ++k) { extreme.fineDb[(size_t) k] = 12.0f; extreme.fineQ[(size_t) k] = 0.3f; }
+    for (float v : run (extreme)) CHECK (std::isfinite (v));
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); std::puts ("DSP, FFT and learning regressions passed"); }
