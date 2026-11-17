@@ -14,7 +14,7 @@ aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbea
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Aktuelle Version: 1.4.1.** Mono und Stereo werden kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
+**Aktuelle Version: 1.5.** Mono und Stereo werden kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
 
 [Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.2.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
@@ -166,3 +166,5 @@ Das Projekt wird laufend weiterentwickelt. Trotz sorgfältiger Tests können Feh
 **Feedback, Fehlermeldungen und Verbesserungsvorschläge sind herzlich willkommen!**
 
 Wenn dieses kleine Werkzeug auch anderen die Hörspielarbeit erleichtert und mehr Raum für Geschichten und menschliche Kreativität schafft, freut mich das ganz besonders.
+
+Öffentliches Versionsschema und Release-Ablauf: [Versionsnummern](docs/VERSIONING.md).

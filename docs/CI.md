@@ -24,10 +24,12 @@ Weitere Maßnahmen:
    `cmake -S . -B build/tests -DDOPPELGANGER_TESTS=ON && cmake --build build/tests && ctest --test-dir build/tests --output-on-failure`
 2. Zur Abnahme **einmal** den Windows-Lauf starten: GitHub > Actions > „Windows-VST3 bauen“ > „Run workflow“, Branch `main`.
    Ohne Haken bei **publish** wird nur gebaut und geprüft (Artefakt zum Herunterladen), es entsteht kein Release.
-3. Erst wenn das grün ist und das Plugin gehört wurde: denselben Lauf mit Haken **publish** starten. Das veröffentlicht das Release `v<VERSION>-b<Lauf>` mit ZIP und setzt den README-Download-Link („latest“) auf die neue Version.
+3. Erst wenn das grün ist und das Plugin gehört wurde: denselben Lauf mit Haken **publish** starten. Das veröffentlicht das Release `v<VERSION>` mit ZIP und setzt den README-Download-Link („latest“) auf die neue Version.
 
 Es wird nie automatisch ein Release oder Merge ausgelöst.
 
 ## Hinweis zum Kontingent
 
 Ein Windows-Lauf kostet etwa das Doppelte seiner Laufzeit in abgerechneten Minuten. Bei 188 verbleibenden Minuten reichen also nur wenige vollständige Abnahmeläufe. Der Zähler setzt sich mit dem neuen Abrechnungszeitraum zurück.
+
+Verbindliches öffentliches Versionsschema: `docs/VERSIONING.md` (ohne Build-Suffix).
