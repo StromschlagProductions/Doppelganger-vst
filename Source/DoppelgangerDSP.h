@@ -547,10 +547,11 @@ inline double gridInterp (const GridCurve& c, double hz)
 constexpr float kMatchLoMin = 20.0f, kMatchLoMax = 2000.0f, kMatchHiMin = 1000.0f, kMatchHiMax = 20000.0f;
 constexpr float kMatchLoDefault = 20.0f, kMatchHiDefault = 12000.0f;
 
+constexpr double kMatchFadeOct = 1.0 / 3.0;
+
 inline double matchRangeWeight (double f, double loHz, double hiHz)
 {
-    constexpr double fadeOct = 1.0 / 3.0;
-    auto edge = [] (double octOutside) { return octOutside <= 0.0 ? 1.0 : (octOutside >= fadeOct ? 0.0 : 0.5 + 0.5 * std::cos (dop::kPi * octOutside / fadeOct)); };
+    auto edge = [] (double octOutside) { return octOutside <= 0.0 ? 1.0 : (octOutside >= kMatchFadeOct ? 0.0 : 0.5 + 0.5 * std::cos (kPi * octOutside / kMatchFadeOct)); };
     double w = 1.0;
     if (loHz > kMatchLoMin + 0.5) w *= edge (std::log2 (loHz / f));
     if (hiHz < kMatchHiMax - 0.5) w *= edge (std::log2 (f / hiHz));
