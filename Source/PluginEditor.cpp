@@ -42,9 +42,18 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     s.append (u8 ("DOPPELGANGER – Hilfe") + u8 (" · v") + juce::String (PLUGIN_VERSION_TEXT) + "\n\n",
               juce::Font (juce::FontOptions (17.0f, juce::Font::bold)), accent);
 
-    body ("Doppelganger gleicht die Klangfarbe einer Sprecherspur an eine feste Referenzstimme an und bringt sie auf die "
-          "Ziel-Lautheit. Mikrofon und Raum der Aufnahme werden so an den Standard des Projekts angepasst. Lowcut, Match-EQ, "
-          "De-Esser und Leveler stecken in einem Plugin.");
+    body ("Doppelganger gleicht Sprecherspuren an neutrale Sprecherprofile aus einem Berliner Profi-Studio an und bringt sie auf die "
+          "Ziel-Lautheit. Takes aus verschiedenen Heimstudios, mit verschiedenen Mikrofonen und Räumen, klingen danach, als wären sie "
+          "in derselben Kabine aufgenommen worden. Lowcut, Angleich-EQ, Feinabstimmung, De-Esser und Leveler stecken in einem Plugin.");
+
+    head ("SO ARBEITET ES");
+    body ("Im Plugin stecken drei neutrale Vorlagen: eine tiefe Männerstimme, eine mittlere und eine hohe Frauenstimme. "
+          "Beim Lernen misst Doppelganger das Klangbild, die Tonhöhe und die Lautheit der Spur. Aus dem Unterschied zur Vorlage "
+          "entsteht eine geglättete Korrekturkurve. Angeglichen wird die Färbung von Mikrofon und Raum, nicht die Stimme selbst: "
+          "ein Bass bleibt ein Bass, eine helle Stimme bleibt hell.");
+    body ("Weg durchs Plugin: Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, dann Grundverstärkung und Leveler. Latenzfrei.");
+    note ("Gedacht für Dialog in Hörspielen, Hörbüchern und Podcasts. Nicht für Gesang, Effektstimmen oder als Rauschunterdrückung: "
+          "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
     head ("STIMME LERNEN");
     body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Es prüft selbst, ob das Klangbild "

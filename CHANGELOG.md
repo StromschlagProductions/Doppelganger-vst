@@ -11,15 +11,22 @@ Neue optionale **Feinabstimmung**: fünf frei einstellbare Glockenfilter nach de
 - Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur bleibt auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe. Auf echten Sprachaufnahmen blieb der Ausgang dabei meist auf 0,1 dB genau, im ungünstigsten gemessenen Fall (±6 dB im Grundtonbereich einer Frauenstimme) auf 0,5 dB.
 - Alle 16 neuen Werte sind automatisierbar und werden mit dem Projekt gespeichert.
 
+- Bedienung im Klangbild: Umschalt beim Ziehen oder Mausrad stellt feiner ein, ein Tooltip zeigt Frequenz, Pegel und Güte des Bands. Ein Band springt beim Anklicken neben dem Punkt nicht mehr zum Mauszeiger, die Scrollrichtung des Systems wird beachtet.
+- Hilfe und README beschreiben ausführlicher, was das Plugin macht und wofür es gedacht ist: Angleichen an neutrale Sprecherprofile aus einem Berliner Profi-Studio.
+
 ### Behoben
 
+- Bei niedrigen Abtastraten (z. B. 22.050 Hz) konnte ein Feinabstimmungsband nahe 20 kHz instabil werden. Die Bandfrequenz ist jetzt auf 45 % der Abtastrate begrenzt, Audio, Anzeige und Lautheitsrechnung nutzen denselben Filterentwurf.
+- Nach einem Wechsel der Abtastrate rechnet die Feinabstimmung ihre Filter neu, auch wenn die Regler unverändert sind.
+- Änderungen an der Feinabstimmung und das Ein-/Ausschalten werden über 30 ms überblendet, statt hart umzuschalten.
+- Die Anzeige der Feinabstimmung rechnet mit der tatsächlichen Abtastrate statt fest mit 48 kHz.
 - Die De-Esser-Anzeige zeigte im Ruhezustand ein fehlerhaftes Zeichen statt „S: –“.
 
 ### Kompatibilität
 
 Die bisherigen neun Parameter-IDs, die Plugin-Kennung und das gespeicherte Format bleiben erhalten. Projekte aus älteren Versionen öffnen mit ausgeschalteter, flacher Feinabstimmung und klingen unverändert; ausgeschaltet oder mit allen Bändern auf 0 dB ist der Ausgang bitgleich mit 1.1.1. Das Fenster ist um die neue Karte höher geworden (Grundgröße 680 × 566 statt 680 × 450).
 
-[Release-Hinweise](docs/releases/1.2.md)
+[Release-Hinweise](docs/releases/1.2.md) · [Prüfbericht Feinabstimmung](docs/EQ_REVIEW_1.2.md)
 
 ## 1.1.1 – 15. November 2026
 
