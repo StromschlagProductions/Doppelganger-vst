@@ -55,6 +55,7 @@ arbeitet latenzfrei und ab dem ersten Sample, egal wo die Wiedergabe startet.
 
 **Die Feinabstimmung.** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
 Bänder zu, direkt im Klangbild oder über die Regler. Ein zusätzlicher EQ in der Slotkette ist dafür nicht nötig.
+Die Feinabstimmung ist auf Sauberkeit geprüft: Ausgeschaltet oder mit allen Bändern auf 0 dB läuft das Signal bitgenau unverändert durch, +6 dB am Regler ergeben auch +6 dB im Klang, und Änderungen werden weich überblendet, damit beim Automatisieren nichts knackt. Kein Band kann über die halbe Abtastrate hinaus (die sogenannte Nyquist-Grenze) gestellt werden: Die Frequenz ist auf 45 % der Abtastrate begrenzt. So bleiben alle Filter auch in Projekten mit niedriger Abtastrate stabil, von 22,05 bis 192 kHz geprüft.
 
 **Wofür es gedacht ist:** Dialogspuren für Hörspiele, Hörbücher und Podcasts, die zusammen klingen sollen.
 Nicht gedacht ist es für Gesang, für Effektstimmen (Funk, Telefon, Monster) oder als Rauschunterdrückung: Saubere,
@@ -129,9 +130,23 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 - Die bisherigen Dateitests `test_engine` und `test_learn` werden mitgebaut und mit einem synthetischen Signal automatisch ausgeführt.
 - Architektur, Sanitizer-Aufrufe und Benchmark: [technische Prüfung](docs/TECHNICAL_REVIEW.md).
 
+## Qualität und Prüfung
+
+Wenige Regler heißen nicht, dass hier etwas schnell zusammengeschustert wurde. Die Einfachheit liegt in der Bedienung, nicht in der Technik dahinter. Jede Version durchläuft Prüfungen, wie sie auch bei kommerziellen Plugins üblich sind, und alles ist im Quellcode nachvollziehbar:
+
+- **pluginval, Stufe 8:** Vor jeder Veröffentlichung läuft das Prüfprogramm pluginval von Tracktion auf strenger Stufe. Es lädt das Plugin wieder und wieder, wechselt Abtastraten und Puffergrößen, speichert und lädt Einstellungen und fährt alle Regler mit Zufallswerten durch.
+- **Automatische Tests der Klangberechnung**, zusätzlich mit Speicher- und Fehlerprüfern (AddressSanitizer, UndefinedBehaviorSanitizer), die auch seltene Programmierfehler aufspüren.
+- **Echtzeitsicher:** Während der Wiedergabe wird kein Speicher angefordert und nirgends gewartet. Das verhindert Aussetzer und Knackser, auch bei kleinen Puffern und vielen Instanzen.
+- **Saubere Feinabstimmung:** ausgeschaltet bitgenau unverändert, +6 dB am Regler ergeben +6 dB im Klang, kein Filter über der Nyquist-Grenze (siehe oben).
+- **Geprüft von 22,05 bis 192 kHz** Abtastrate, mit vielen verschiedenen Puffergrößen.
+
+Ob es gut klingt, entscheidet am Ende das Ohr. Deshalb geht jede Version auch durch den Studioalltag von Markus Hildebrandt (siehe unten).
+
 ## Beta-Test und Danke
 
 **SOUNDJOB / Markus Hildebrandt** – Beta-Testing
+
+Ein großes Dankeschön an **Markus Hildebrandt** von SOUNDJOB. Markus betreibt ein eigenes Tonstudio und hat weit mehr Hörspiele produziert als ich. Er hat DOPPELGANGER im Studioalltag getestet und mir ehrliches, fachkundiges Feedback gegeben. Auf seine Anregung hin gibt es seit Version 1.2 die optionale Feinabstimmung mit fünf frei einstellbaren Bändern. Dafür danke ich ihm sehr: Seine Erfahrung hat das Plugin spürbar besser gemacht.
 
 ---
 
