@@ -102,3 +102,11 @@ if(DOPPELGANGER_PLUGIN_TESTS)
     add_test(NAME processor_integration COMMAND test_processor)
     set_tests_properties(processor_integration PROPERTIES TIMEOUT 120)
 endif()
+
+# Real editor snapshots, excluded from normal plugin/release builds.
+juce_add_console_app(DoppelgangerScreenshot PRODUCT_NAME "Doppelganger screenshot")
+target_sources(DoppelgangerScreenshot PRIVATE tools/screenshot.cpp)
+target_include_directories(DoppelgangerScreenshot PRIVATE Source $<TARGET_PROPERTY:Doppelganger,INCLUDE_DIRECTORIES>)
+target_compile_definitions(DoppelgangerScreenshot PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 PLUGIN_VERSION_TEXT="${DOP_VERSION}")
+target_link_libraries(DoppelgangerScreenshot PRIVATE Doppelganger)
+set_target_properties(DoppelgangerScreenshot PROPERTIES EXCLUDE_FROM_ALL TRUE)
