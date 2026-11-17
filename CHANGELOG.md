@@ -1,5 +1,14 @@
 # Änderungen
 
+## 1.4.1 – 17. November 2026
+
+- Lautheitsanzeige und Leveler summieren die unabhängig K-gewichteten Kanalenergien nach BS.1770. Der bisherige Stereo-Mittelwert unterschätzte die Lautheit bei gleichem L/R-Signal um rund 3,01 LU.
+- Anlernen misst die Energie vor dem Stereo-Downmix separat pro Kanal. Gegenphasige oder unterschiedlich laute Anteile verschwinden damit nicht mehr aus der Lautheitsmessung.
+- Lernprofile speichern ihre Kanalzahl. Die Grundverstärkung berücksichtigt die aktuelle Mono-/Stereo-Konfiguration; Kanalzahl und Pegelanpassung bleiben auch nach Speichern/Laden und einem Layoutwechsel konsistent.
+- Regressionen prüfen Mono, Dual-Mono, energiegleiches Stereo, einzelne aktive Kanäle, Gegenphase und asymmetrisches Stereo. LISTEN, De-Esser und Angleich-Bereich aus 1.4 bleiben erhalten.
+
+[Release-Hinweise](docs/releases/1.4.1.md)
+
 ## 1.4 – 17. November 2026
 
 Nach Rückmeldungen aus dem Praxistest: Angleich-Bereich mit Begrenzern, ein De-Esser, der nur auf Zischlaute reagiert, und eine prüfbare Lautheitsanzeige.

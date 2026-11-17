@@ -354,4 +354,60 @@ void integratedLoudnessTests()
     }
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+void channelLoudnessTests()
+{
+    struct Reading { float integrated, momentary, ride; };
+    constexpr double stereoDb = 3.01029995664;
+    for (double fs : { 22050., 44100., 48000., 96000., 192000. })
+    {
+        auto measure = [fs] (int channels, double left, double right, bool normalise, bool leveler)
+        {
+            dop::Engine e; e.prepare (fs);
+            auto p = bypass();
+            p.targetLufs = -23; p.leveler = leveler ? 1.0f : 0.0f;
+            const double energy = left * left + (channels == 2 ? right * right : 0);
+            if (normalise) p.takeLufs = (float) (-23.0 + 10.0 * std::log10 (energy / channels));
+            e.setParams (p); e.reset();
+            float l[512], r[512]; float* ptr[] { l, r };
+            for (int off = 0, end = (int) (fs * 8); off < end; off += 512)
+            {
+                const int n = std::min (512, end - off);
+                for (int i = 0; i < n; ++i)
+                {
+                    const float x = (float) (0.1 * std::sin (2 * dop::kPi * 997 * (off + i) / fs));
+                    l[i] = (float) (left * x); r[i] = (float) (right * x);
+                }
+                e.process (ptr, channels, n, nullptr);
+            }
+            return Reading { e.meterIntLufs.load(), e.meterOutLufs.load(), e.meterRideDb.load() };
+        };
+        const auto mono = measure (1, 1, 0, false, false);
+        CHECK (std::abs (mono.integrated + 23.0f) < .15f);
+        for (double phase : { -1., 1. })
+        {
+            const auto stereo = measure (2, 1, phase, false, false);
+            if (std::getenv ("DOP_VERBOSE")) std::printf ("Channels fs %.0f: mono %.3f stereo %.3f, momentary delta %.6f\n", fs, mono.integrated, stereo.integrated, stereo.momentary - mono.momentary);
+            CHECK (std::abs (stereo.integrated - mono.integrated - stereoDb) < .05); // histogram resolution 0.05 LU
+            CHECK (std::abs (stereo.momentary - mono.momentary - stereoDb) < .001);
+        }
+        for (const auto& gains : { std::array<double, 2> { 1, 0 }, { 0, 1 }, { std::sqrt (.5), std::sqrt (.5) } })
+        {
+            const auto stereo = measure (2, gains[0], gains[1], false, false);
+            CHECK (std::abs (stereo.integrated - mono.integrated) < .01);
+        }
+        for (bool leveler : { false, true })
+        {
+            const auto normalMono = measure (1, 1, 0, true, leveler);
+            for (const auto& gains : { std::array<double, 2> { 1, 1 }, { 1, 0 }, { 0, 1 }, { .8, .3 } })
+            {
+                const auto stereo = measure (2, gains[0], gains[1], true, leveler);
+                CHECK (std::abs (stereo.integrated - normalMono.integrated) < .05);
+                CHECK (std::abs (stereo.momentary - normalMono.momentary) < .01);
+                CHECK (std::abs (stereo.ride - normalMono.ride) < .01);
+                if (! leveler) CHECK (std::abs (stereo.integrated + 23.0f) < .15f);
+            }
+        }
+    }
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); channelLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }

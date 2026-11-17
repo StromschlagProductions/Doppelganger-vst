@@ -96,7 +96,9 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe.");
 
     head ("LAUTHEIT");
-    body ("Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
+    body ("Mono und Stereo werden kanalrichtig nach BS.1770 gemessen: Die Energien von links und rechts werden addiert. "
+          "Die Grundverstärkung berücksichtigt die Kanalzahl; eine Stereo-Spur mit gleichem Signal auf beiden Kanälen benötigt rund 3 dB weniger Verstärkung als Mono. "
+          "Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
           "Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
           "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Die Gesamtlautheit ändert er nicht.");

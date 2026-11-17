@@ -222,6 +222,7 @@ struct LearnedProfile
     float pitchHz = 0.0f;       // 0 = keine Tonhoehe erkannt
     float speechSeconds = 0.0f;
     float loudnessLufs = -100.0f;   // integrierte Lautheit der Spur (nach Lowcut), -100 = unbekannt
+    int loudnessChannels = 1;      // measured channel count; old profiles used a mono-equivalent value
     float typicalOffsetDb = -2.5f;  // typischer Sprechpegel (Mittel der 400-ms-Bloecke in dB) minus integrierte Lautheit
     bool valid = false;
 };
@@ -231,7 +232,8 @@ inline bool isValidProfile (const LearnedProfile& p)
 {
     for (float v : p.curveDb)
         if (! std::isfinite (v) || v < -60.01f || v > 40.01f) return false;
-    return std::isfinite (p.pitchHz) && p.pitchHz >= 0 && p.pitchHz <= 2000
+    return p.loudnessChannels >= 1 && p.loudnessChannels <= 2
+        && std::isfinite (p.pitchHz) && p.pitchHz >= 0 && p.pitchHz <= 2000
         && std::isfinite (p.speechSeconds) && p.speechSeconds >= 0
         && std::isfinite (p.loudnessLufs) && p.loudnessLufs >= -100 && p.loudnessLufs <= 24
         && std::isfinite (p.typicalOffsetDb) && p.typicalOffsetDb >= -8 && p.typicalOffsetDb <= 0;
@@ -313,11 +315,14 @@ public:
         for (auto* s : { &s1, &s2, &s3, &s4, &k1, &k2 }) s->reset();
         subAcc = 0.0; subN = 0; subCount = 0; sub.fill (0.0);
         blocks.clear();
+        loudnessChannels = 1;
     }
 
-    // Samples (mono) einspeisen
-    void push (const float* x, int n)
+    // Mono spectral/pitch tap, with optional summed per-channel K-weighted power.
+    // Loudness must not use the squared stereo downmix: that loses side-channel energy.
+    void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1)
     {
+        loudnessChannels = channelPower ? std::clamp (channels, 1, 2) : 1;
         for (int i = 0; i < n; ++i)
         {
             const double v = std::isfinite (x[i]) ? x[i] : 0.0;
@@ -331,7 +336,7 @@ public:
             }
             // Lautheit (BS.1770): 400-ms-Bloecke im 100-ms-Raster
             const double kw = k2.process (kHp, k1.process (kShelf, v));
-            subAcc += kw * kw;
+            subAcc += channelPower ? (std::isfinite (channelPower[i]) ? std::max (0.0, channelPower[i]) : 0.0) : kw * kw;
             if (++subN >= subLen)
             {
                 sub[(size_t) (subCount % 4)] = subAcc / subN;
@@ -393,6 +398,7 @@ public:
             p.pitchHz = v[v.size() / 2];
         }
         p.loudnessLufs = integratedLoudness (blocks);
+        p.loudnessChannels = loudnessChannels;
         if (p.loudnessLufs > -99.0f)
         {
             double sdb = 0; long nb = 0;
@@ -521,6 +527,7 @@ private:
     int64_t subCount = 0;
     std::array<double, 4> sub {};
     std::vector<double> blocks;
+    int loudnessChannels = 1;
 };
 
 //==============================================================================
@@ -879,7 +886,7 @@ struct EngineParams
     bool deessListen = false;    // Differenz vor/nach De-Esser: tatsaechlich entfernte Anteile
     float leveler = 0.5f;        // 0..1 -> Regelbereich 0..+-10 dB
     float targetLufs = -23.0f;
-    float takeLufs = -100.0f;    // gelernte Lautheit nach dem EQ, -100 = unbekannt (dann keine Grundverstaerkung)
+    float takeLufs = -100.0f;    // learned per-channel equivalent after EQ; live channel count is added below
     float rideOffsetDb = -2.5f;  // typischer Sprechpegel relativ zur integrierten Lautheit (gelernt)
 };
 
@@ -941,7 +948,7 @@ public:
             for (auto& s : ch.lc) s.reset();
             for (auto& s : ch.eq[0]) s.reset();
             for (auto& s : ch.eq[1]) s.reset();
-            for (auto* s : { &ch.dh, &ch.dh2, &ch.dt, &ch.dl, &ch.dl2, &ch.ds, &ch.k1, &ch.k2, &ch.o1, &ch.o2 }) s->reset();
+            for (auto* s : { &ch.dh, &ch.dh2, &ch.dt, &ch.dl, &ch.dl2, &ch.ds, &ch.k1, &ch.k2, &ch.o1, &ch.o2, &ch.learnK1, &ch.learnK2 }) s->reset();
         }
         fading = false; fadePos = 0;
         hiPow = fullPow = 0.0; deessGain = 1.0; shelfDb = 0.0; shelf = Biquad {};
@@ -1023,10 +1030,22 @@ public:
     }
 
     // tap: optional, erhaelt das Mono-Signal nach dem Lowcut (fuers Lernen)
-    void process (float* const* io, int numCh, int n, float* tap)
+    void resetLearningMeter() noexcept
+    {
+        for (auto& ch : chans) { ch.learnK1.reset(); ch.learnK2.reset(); }
+    }
+
+    void process (float* const* io, int numCh, int n, float* tap, double* learnPower = nullptr)
     {
         numCh = std::min (numCh, kMaxCh);
-        if (numCh <= 0) return;
+        if (numCh <= 0 || n <= 0) return;
+        if (activeChannels != numCh)
+        {
+            activeChannels = numCh;
+            channelLoudnessDb = 10.0 * std::log10 ((double) numCh);
+            msK = outMs = 0.0;
+            clearIntegrated();
+        }
         if (intResetRequest.exchange (false)) clearIntegrated();
         const double invCh = 1.0 / numCh;
         // De-Esser: Schwelle (Anteil der Hoehen ueber der Frequenz an der Gesamtleistung) und maximale Absenkung
@@ -1044,7 +1063,7 @@ public:
             if (++ctl >= 16) ctl = 0;
 
             double y[kMaxCh] = {}, hi[kMaxCh] = {};
-            double tapSum = 0, hiP = 0, fullP = 0;
+            double tapSum = 0, tapPower = 0, hiP = 0, fullP = 0;
             const double a = fading ? (double) fadePos / fadeLen : 0.0;
             for (int c = 0; c < numCh; ++c)
             {
@@ -1052,6 +1071,11 @@ public:
                 double x = std::isfinite (io[c][i]) ? io[c][i] : 0.0;
                 if (lcOn) x = ch.lc[1].process (lc[1], ch.lc[0].process (lc[0], x));
                 tapSum += x;
+                if (learnPower != nullptr)
+                {
+                    const double k = ch.learnK2.process (kHp, ch.learnK1.process (kShelf, x));
+                    tapPower += k * k;
+                }
                 double e = x;
                 if (! neutral[cur]) for (int k = 0; k < kBands; ++k) e = ch.eq[cur][(size_t) k].process (bank[cur][(size_t) k], e);
                 if (fading)
@@ -1069,6 +1093,7 @@ public:
             }
             fineEq.advance();
             if (tap != nullptr) tap[i] = (float) (tapSum * invCh);
+            if (learnPower != nullptr) learnPower[i] = tapPower;
             if (fading && ++fadePos >= fadeLen) { cur = 1 - cur; fading = false; }
 
             // De-Esser (Kanaele gekoppelt): erkennt Zischlaute am Hoehenanteil, senkt per Hoehen-Shelf ab
@@ -1115,9 +1140,10 @@ public:
                 io[c][i] = (float) o;
                 peak = std::max (peak, std::abs (o));
             }
-            msK += loudCoef * (kpIn * invCh - msK);
-            outMs += loudCoef * (kpOut * invCh - outMs);
-            hopAcc += kpOut * invCh;
+            // BS.1770: L/R energies add, independently of their phase/correlation.
+            msK += loudCoef * (kpIn - msK);
+            outMs += loudCoef * (kpOut - outMs);
+            hopAcc += kpOut;
             if (++hopPos >= hopLen) { integrateHop (hopAcc / hopLen); hopAcc = 0.0; hopPos = 0; }
         }
         const double maxDe = -20.0 * std::log10 (minDeessGain);
@@ -1201,7 +1227,7 @@ private:
     double desiredStaticDb() const
     {
         if (params.takeLufs <= -99.0f) return 0.0;
-        return std::clamp ((double) params.targetLufs - params.takeLufs, -30.0, 30.0);
+        return std::clamp ((double) params.targetLufs - params.takeLufs - channelLoudnessDb, -30.0, 30.0);
     }
 
     // Steuertakt alle 16 Samples: Grundverstaerkung und Leveler
@@ -1234,11 +1260,13 @@ private:
     {
         std::array<BiquadState, 2> lc;
         std::array<std::array<BiquadState, kBands>, 2> eq;
-        BiquadState dh, dh2, dt, dl, dl2, ds, k1, k2, o1, o2;
+        BiquadState dh, dh2, dt, dl, dl2, ds, k1, k2, o1, o2, learnK1, learnK2;
 
     };
 
     double fs = 48000.0;
+    int activeChannels = 1;
+    double channelLoudnessDb = 0.0;
     EngineParams params;
     FineEq fineEq;
     bool fineDirty = true;

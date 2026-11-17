@@ -51,8 +51,10 @@ struct LiveFrame
 struct LearnBlock
 {
     std::array<float, 512> samples {};
+    std::array<double, 512> loudnessPower {}; // sum of independently K-weighted channel powers
     uint64_t generation = 0;
     int count = 0;
+    int channels = 1;
 };
 static_assert (std::atomic<uint64_t>::is_always_lock_free);
 }
