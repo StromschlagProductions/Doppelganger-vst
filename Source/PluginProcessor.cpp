@@ -192,6 +192,7 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     if (numCh == 0 || n == 0) return;
     const auto session = learnGeneration.load (std::memory_order_acquire);
     const bool learnNow = (session & 1u) != 0;
+    if (learnNow && audioLearnBlock.generation != session) engine.resetLearningMeter();
     const auto liveSession = liveGeneration.load (std::memory_order_acquire);
     const bool capture = (liveSession & 1u) != 0;
     if (audioLiveGeneration != liveSession)
@@ -207,7 +208,8 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         if (capture)
             for (int i = 0; i < m; ++i)
                 audioLiveFrame.input[(size_t) (liveFill + i)] = ptrs[1] ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
-        engine.process (ptrs, numCh, m, learnNow ? audioLearnBlock.samples.data() : nullptr);
+        engine.process (ptrs, numCh, m, learnNow ? audioLearnBlock.samples.data() : nullptr,
+                        learnNow ? audioLearnBlock.loudnessPower.data() : nullptr);
         if (capture)
         {
             for (int i = 0; i < m; ++i)
@@ -225,6 +227,7 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         if (learnNow)
         {
             audioLearnBlock.count = m;
+            audioLearnBlock.channels = numCh;
             audioLearnBlock.generation = session;
             if (! learnQueue.push (audioLearnBlock))
                 overflowGeneration.store (session, std::memory_order_release);
@@ -257,7 +260,7 @@ void DoppelgangerProcessor::drainFifo()
     const auto session = learnGeneration.load();
     for (int i = 0; i < 256 && learnQueue.pop (drainBlock); ++i)
         if ((session & 1u) != 0 && drainBlock.generation == session)
-            learner.push (drainBlock.samples.data(), drainBlock.count);
+            learner.push (drainBlock.samples.data(), drainBlock.count, drainBlock.loudnessPower.data(), drainBlock.channels);
     if ((session & 1u) != 0 && overflowGeneration.load() == session)
     {
         learnGeneration.fetch_add (1);
@@ -339,7 +342,8 @@ void DoppelgangerProcessor::updateTakeLoudness()
     for (size_t i = 0; i < total.size(); ++i) total[i] += fine[i];
 
     if (info.profile.valid && info.profile.loudnessLufs > -99.0f)
-        takeLufs = info.profile.loudnessLufs + dop::eqLoudnessDeltaDb (info.profile.curveDb, total);
+        takeLufs = info.profile.loudnessLufs - (float) (10.0 * std::log10 ((double) info.profile.loudnessChannels))
+                   + dop::eqLoudnessDeltaDb (info.profile.curveDb, total);
     else
         takeLufs = -100.0f;
 
@@ -486,6 +490,7 @@ void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
             pt.setProperty ("pitch", info.profile.pitchHz, nullptr);
             pt.setProperty ("seconds", info.profile.speechSeconds, nullptr);
             pt.setProperty ("lufs", info.profile.loudnessLufs, nullptr);
+            pt.setProperty ("loudnessChannels", info.profile.loudnessChannels, nullptr);
             pt.setProperty ("typical", info.profile.typicalOffsetDb, nullptr);
             state.appendChild (pt, nullptr);
         }
@@ -521,6 +526,7 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
             p.pitchHz = (float) pt.getProperty ("pitch", 0.0f);
             p.speechSeconds = (float) pt.getProperty ("seconds", 0.0f);
             p.loudnessLufs = (float) pt.getProperty ("lufs", -100.0f);
+            p.loudnessChannels = (int) pt.getProperty ("loudnessChannels", 1);
             p.typicalOffsetDb = (float) pt.getProperty ("typical", -2.5f);
             p.valid = parsed && dop::isValidProfile (p);
         }

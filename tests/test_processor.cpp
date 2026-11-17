@@ -233,9 +233,58 @@ void matchRange()
     CHECK (std::abs (q->apvts.getRawParameterValue ("matchLow")->load() - 300.0f) < 1.0f);
     { float md = 0; const auto c2 = q->getDisplayInfo().correction; for (size_t i = 0; i < c.size(); ++i) md = std::max (md, std::abs (c2[i] - c[i])); CHECK (md < 1e-3f); }
 }
+
+void channelLearning()
+{
+    constexpr double fs = 48000;
+    auto make = [fs] (int channels)
+    {
+        auto p = std::make_unique<DoppelgangerProcessor>();
+        auto layout = p->getBusesLayout();
+        const auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
+        layout.inputBuses.set (0, set); layout.outputBuses.set (0, set); CHECK (p->setBusesLayout (layout));
+        auto* lowcut = p->apvts.getParameter ("lowcut"); lowcut->setValueNotifyingHost (lowcut->convertTo0to1 (20));
+        auto* amount = p->apvts.getParameter ("amount"); amount->setValueNotifyingHost (0);
+        p->prepareToPlay (fs, 512);
+        return p;
+    };
+    auto learn = [fs] (DoppelgangerProcessor& p, double right)
+    {
+        p.startLearning(); auto x = voice (fs, 5);
+        const int channels = p.getTotalNumInputChannels(); juce::AudioBuffer<float> b (channels, 512);
+        for (size_t off = 0; off < x.size(); off += 512)
+        {
+            const int n = (int) std::min (size_t (512), x.size() - off); b.setSize (channels, n, false, false, true);
+            for (int c = 0; c < channels; ++c) for (int i = 0; i < n; ++i)
+                b.setSample (c, i, (float) (x[off + (size_t) i] * (c == 0 ? 1 : right)));
+            process (p, b); DoppelgangerProcessorTestAccess::tick (p);
+        }
+        p.finishLearning(); DoppelgangerProcessorTestAccess::tick (p);
+        const auto profile = p.getDisplayInfo().profile; CHECK (profile.valid); return profile;
+    };
+    auto mono = make (1), stereo = make (2);
+    const auto m = learn (*mono, 0), s = learn (*stereo, 1);
+    CHECK (m.loudnessChannels == 1 && s.loudnessChannels == 2);
+    CHECK (std::abs (s.loudnessLufs - m.loudnessLufs - 3.0103f) < .002f);
+    CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*mono) - DoppelgangerProcessorTestAccess::takeLufs (*stereo)) < .002f);
+    const auto asymmetric = learn (*stereo, -.5);
+    CHECK (std::abs (asymmetric.loudnessLufs - m.loudnessLufs - 10 * std::log10 (1.25)) < .002);
+    juce::MemoryBlock state; stereo->getStateInformation (state);
+    auto restored = make (1); restored->setStateInformation (state.getData(), (int) state.getSize());
+    CHECK (restored->getDisplayInfo().profile.loudnessChannels == 2);
+    CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*restored) - DoppelgangerProcessorTestAccess::takeLufs (*stereo)) < .002f);
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()); CHECK (xml != nullptr);
+    auto tree = juce::ValueTree::fromXml (*xml); auto pt = tree.getChildWithName ("PROFILE");
+    pt.removeProperty ("loudnessChannels", nullptr);
+    pt.setProperty ("lufs", asymmetric.loudnessLufs - 3.0103f, nullptr); // old mono-equivalent representation
+    auto legacy = tree.createXml(); juce::AudioProcessor::copyXmlToBinary (*legacy, state);
+    restored->setStateInformation (state.getData(), (int) state.getSize());
+    CHECK (restored->getDisplayInfo().profile.valid && restored->getDisplayInfo().profile.loudnessChannels == 1);
+    CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*restored) - DoppelgangerProcessorTestAccess::takeLufs (*stereo)) < .002f);
+}
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); matchRange(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
+    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }
