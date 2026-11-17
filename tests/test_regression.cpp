@@ -186,4 +186,48 @@ void fineTests()
     for (float v : run (extreme)) CHECK (std::isfinite (v));
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+void fineRateAndAutomationTests()
+{
+    auto params = bypass(); params.fineOn = true;
+    params.fineHz.fill (20000); params.fineDb.fill (12); params.fineQ.fill (0.3f);
+    for (double fs : { 8000., 22050., 44100., 48000., 96000., 192000. })
+    {
+        const auto curve = dop::fineCurveDb (true, params.fineHz, params.fineDb, params.fineQ, fs);
+        for (float v : curve) CHECK (std::isfinite (v));
+        dop::Engine e; e.prepare (fs); e.setParams (params); e.reset();
+        float previous = 0;
+        for (int i = 0; i < (int) fs; ++i)
+        {
+            float sample = (float) (0.001 * std::sin (i * 0.1)); float* ptr[] = { &sample };
+            e.process (ptr, 1, 1, nullptr); CHECK (std::isfinite (sample) && std::abs (sample) < 10);
+            previous = sample;
+        }
+        (void) previous;
+    }
+    // Prepare at a different rate must redesign unchanged parameter values.
+    dop::Engine reused, fresh; reused.prepare (48000); reused.setParams (params);
+    reused.prepare (22050); reused.setParams (params); reused.reset();
+    fresh.prepare (22050); fresh.setParams (params); fresh.reset();
+    for (int i = 0; i < 4000; ++i)
+    {
+        float a = (float) (0.001 * std::sin (i * 0.3)), b = a;
+        float* pa[] = { &a }; float* pb[] = { &b };
+        reused.process (pa, 1, 1, nullptr); fresh.process (pb, 1, 1, nullptr); CHECK (a == b);
+    }
+    dop::FineEq reference, changed; reference.prepare (48000); changed.prepare (48000);
+    auto hz = params.fineHz, db = params.fineDb, q = params.fineQ;
+    hz.fill (1000); db.fill (0); db[0] = 12; q.fill (1);
+    reference.set (true, hz, db, q); changed.set (true, hz, db, q);
+    for (int i = 0; i < 1500; ++i)
+    {
+        if (i == 200) changed.set (false, hz, db, q);
+        const double x = 0.1 * std::sin (i * 0.1);
+        const double a = reference.process (0, x), b = changed.process (0, x);
+        if (i < 1440) CHECK (a == b);
+        reference.advance(); changed.advance();
+    }
+    for (int i = 0; i < 4000; ++i) { changed.process (0, 0); changed.advance(); }
+    CHECK (changed.process (0, 0.123) == 0.123); // settled bypass has no stale filter tail
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); fineRateAndAutomationTests(); std::puts ("DSP, FFT and learning regressions passed"); }

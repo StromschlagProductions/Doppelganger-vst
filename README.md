@@ -5,9 +5,10 @@
   <img src="docs/logo-hell.png" alt="Stromschlag Audio" height="64">
 </picture>
 
-VST3-Insert-Effekt für Hörspiel-Produktion. Er gleicht die Klangfarbe einer Sprecherspur an eine feste Referenzstimme
-an und bringt sie gleich auf die richtige Lautheit: Mikrofon und Raum werden auf den Standard des Projekts gebracht,
-ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
+VST3-Insert-Effekt für Hörspiel-Produktion. DOPPELGANGER gleicht Sprecherspuren an **neutrale Sprecherprofile aus
+einem Berliner Profi-Studio** an und bringt sie gleich auf die richtige Lautheit. Takes aus unterschiedlichen
+Heimstudios, mit unterschiedlichen Mikrofonen und Räumen klingen danach, als wären sie in derselben Kabine
+aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbearbeitet.
 
 **⬇ Download (Windows · VST3 · Mono/Stereo):** https://github.com/StromschlagProductions/Doppelganger-vst/releases/latest
 
@@ -19,13 +20,45 @@ Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program 
 
 ## Warum es dieses Plugin gibt
 
-Bisher lag auf jeder Sprecherspur eine Kette aus Match-EQ, Leveler/Kompressor und De-Esser, jede Spur einzeln
-angeglichen an eine männliche oder weibliche Vorlage. DOPPELGANGER kennt diese Vorlagen fest und erledigt alles in
-einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
+In einem Hörspiel sprechen oft viele Sprecherinnen und Sprecher, die ihre Rollen zu Hause aufnehmen. Jede Aufnahme
+bringt ihr eigenes Mikrofon, ihren eigenen Raum und ihren eigenen Pegel mit: mal dumpf und nah, mal dünn und hallig,
+mal zu leise, mal mit scharfen S-Lauten. Stehen die Figuren dann in einer Szene nebeneinander, hört man sofort, dass
+sie nicht im selben Raum waren.
+
+Bisher lag deshalb auf jeder Sprecherspur eine Kette aus Match-EQ, Leveler/Kompressor und De-Esser, jede Spur einzeln
+an eine männliche oder weibliche Vorlage angeglichen. DOPPELGANGER hat diese Vorlagen fest eingebaut und erledigt
+alles in einem Plugin: auf die Spur ziehen, einmal lernen lassen, fertig.
 
 *DOPPELGANGER soll niemandem die Erfahrung abnehmen, eine Stimme selbst anzugleichen. Gerade am Anfang lehrt es viel, wenn man selbst hört, wie Mikrofon, Raum, Zischlaute und Lautheit zusammenspielen. Ich bin dankbar, dass ich diesen Weg selbst gegangen bin, auch wenn er manchmal umständlich und mühselig war. Gerade dadurch weiß ich, was ich mir von einem Werkzeug wünsche, das all das in einem vereint. DOPPELGANGER soll das Arbeiten und Lernen nicht ersetzen, sondern die technische Umsetzung im Alltag einfacher machen. Das Plugin ist auf meinen bevorzugten Klang für Sprecherstimmen bei Hörspielen ausgerichtet, so wie er mir gefällt und wie ich ihn ausgewogen finde. Ich habe ihn als Standard gesetzt.*
 
 – Lars Eickstädt, Stromschlag Audio
+
+## Was das Plugin macht
+
+**Die Vorlagen.** Im Plugin stecken drei neutrale Sprecherprofile, gemessen an Aufnahmen aus einem Berliner
+Profi-Studio: eine tiefe Männerstimme, eine mittlere und eine hohe Frauenstimme. Neutral heißt: sauber aufgenommen,
+ausgewogen, ohne Färbung durch Raum oder besonderes Mikrofon. So klingt eine Stimme, die man im Hörspiel gern hört.
+Gespeichert ist davon nur die Klangkurve, keine Aufnahme.
+
+**Das Lernen.** Beim Lernen hört DOPPELGANGER der Spur zu und misst drei Dinge: das mittlere Klangbild der Stimme
+(welche Frequenzen stark oder schwach sind), die Tonhöhe und die Lautheit. Pausen und Atmer zählen nicht mit. Aus der
+Tonhöhe wählt es die passende Vorlage.
+
+**Das Angleichen.** Aus dem Unterschied zwischen gelernter Stimme und Vorlage berechnet das Plugin eine
+Korrekturkurve und baut daraus einen EQ mit 26 Bändern. Die Kurve ist bewusst geglättet: Angeglichen wird die
+Färbung von Mikrofon und Raum, nicht die Stimme selbst. Ein Bass bleibt ein Bass, eine helle Stimme bleibt hell, sie
+klingen nur, als stünden sie vor demselben Mikrofon. Wie weit das geht, bestimmt der Regler **Angleichung**.
+
+**Der Weg durchs Plugin.** Lowcut → Angleich-EQ → Feinabstimmung → De-Esser → Grundverstärkung und Leveler.
+Am Ende steht die Spur auf der Ziel-Lautheit (Standard −23 LUFS), sanft geglättet und ohne harte S-Laute. Alles
+arbeitet latenzfrei und ab dem ersten Sample, egal wo die Wiedergabe startet.
+
+**Die Feinabstimmung.** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
+Bänder zu, direkt im Klangbild oder über die Regler. Ein zusätzlicher EQ in der Slotkette ist dafür nicht nötig.
+
+**Wofür es gedacht ist:** Dialogspuren für Hörspiele, Hörbücher und Podcasts, die zusammen klingen sollen.
+Nicht gedacht ist es für Gesang, für Effektstimmen (Funk, Telefon, Monster) oder als Rauschunterdrückung: Saubere,
+trockene Aufnahmen bleiben die Voraussetzung. Dereverb und Denoise gehören vor das Plugin.
 
 ## Oberfläche
 
@@ -58,7 +91,7 @@ und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten di
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 | Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |
-| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. |
+| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
 
 Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
 ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen
@@ -73,8 +106,9 @@ Tooltips an allen Reglern.
 
 ## Referenzen
 
-Die Zielkurven der drei Referenzstimmen sind fest im Plugin hinterlegt (`Source/ReferenceCurves.h`), die
-Audiodateien selbst werden nicht mitgeliefert. Erzeugt werden die Kurven mit:
+Die drei neutralen Sprecherprofile stammen aus Aufnahmen eines Berliner Profi-Studios (Tief/Mann, Mittel/Frau,
+Hoch/Frau). Fest im Plugin hinterlegt sind nur ihre Zielkurven (`Source/ReferenceCurves.h`), die Audiodateien selbst
+werden nicht mitgeliefert. Erzeugt werden die Kurven mit:
 
 ```
 python3 tools/make_reference_curves.py tief=MANN.wav mittel=FRAU1.wav hoch=FRAU2.wav
@@ -84,7 +118,7 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 
 ## Bauen und testen
 
-- Windows-VST3: Der Build mit Regressionstests und pluginval Level 8 läuft aus Kostengründen nicht bei jedem Commit, sondern von Hand (Actions > „Windows-VST3 bauen“ > Run workflow) und bei Pull Requests. Ein Release entsteht nur, wenn dabei „publish“ angehakt wird. Details: [CI-Konfiguration](docs/CI.md).
+- Windows-VST3: Der Build mit Regressionstests und pluginval Level 8 läuft nicht bei jedem Commit, sondern von Hand (Actions > „Windows-VST3 bauen“ > Run workflow) und bei Pull Requests. Ein Release entsteht nur, wenn dabei „publish“ angehakt wird. Details: [CI-Konfiguration](docs/CI.md).
 - Automatische DSP-/Transporttests ohne JUCE: `cmake -S . -B build/tests -DDOPPELGANGER_TESTS=ON`, danach `cmake --build build/tests` und `ctest --test-dir build/tests --output-on-failure`.
 - Prozessor-/State-/Editor-Tests zusammen mit dem VST3: `-DDOPPELGANGER_PLUGIN_TESTS=ON`.
 - Die bisherigen Dateitests `test_engine` und `test_learn` werden mitgebaut und mit einem synthetischen Signal automatisch ausgeführt.

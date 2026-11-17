@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include "TestSupport.h"
 #include <thread>
 #include <memory>
@@ -168,6 +169,10 @@ void fineTuning()
         for (int k = 1; k <= dop::kFineBands; ++k) CHECK (fresh->apvts.getRawParameterValue ("fineDb" + juce::String (k))->load() == 0.0f);
         CHECK (fresh->getDisplayInfo().profile.valid);
         CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*fresh) - base) < 1e-3f);
+        // Also load the old project into the already-used, boosted instance.
+        p->setStateInformation (old.getData(), (int) old.getSize());
+        CHECK (p->apvts.getRawParameterValue ("fineOn")->load() < 0.5f);
+        CHECK (p->apvts.getRawParameterValue ("fineDb1")->load() == 0.0f);
     }
 
     // Ausgang: mit und ohne Feinabstimmung gleich laut, weil die Grundverstaerkung ausgleicht
@@ -180,9 +185,40 @@ void fineTuning()
     // fuer die Schaetzung auf dem Spektralgitter (hier 0,6 dB Rest); auf echter Sprache blieb der Rest bei hoechstens 0,5 dB.
     CHECK (a > -60.0f && std::abs (a - b) < 1.0f);
 }
+void fineMouseTests()
+{
+    auto processor = std::make_unique<DoppelgangerProcessor>();
+    FineNodes nodes (processor->apvts); nodes.setBounds (0, 0, 636, 108);
+    const float x = 636 * std::log2 (1000.0f / 40) / std::log2 (20000.0f / 40);
+    auto event = [&] (juce::Point<float> p, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), p, mods, 1.0f,
+            0, 0, 0, 0, &nodes, &nodes, juce::Time::getCurrentTime(), p,
+            juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto point = juce::Point<float> (x, 54);
+    juce::MouseWheelDetails wheel {}; wheel.deltaY = 0.2f;
+    auto* q = processor->apvts.getRawParameterValue ("fineQ3");
+    nodes.mouseWheelMove (event (point, {}), wheel); CHECK (q->load() > 1);
+    const float increased = q->load();
+    wheel.isReversed = true;
+    nodes.mouseWheelMove (event (point, {}), wheel); CHECK (q->load() < increased);
+    nodes.mouseWheelMove (event ({ 0, 0 }, {}), wheel); CHECK (q->load() < increased);
+    CHECK (processor->apvts.getRawParameterValue ("fineOn")->load() > 0.5f);
+    // Clicking off-centre must not jump the node to the cursor.
+    const auto press = event (point + juce::Point<float> (5, 4), juce::ModifierKeys::leftButtonModifier);
+    nodes.mouseDown (press); nodes.mouseDrag (press); nodes.mouseUp (press);
+    CHECK (std::abs (processor->apvts.getRawParameterValue ("fineHz3")->load() - 1000) < 2);
+    CHECK (processor->apvts.getRawParameterValue ("fineDb3")->load() == 0);
+    auto* db = processor->apvts.getParameter ("fineDb3");
+    db->setValueNotifyingHost (db->convertTo0to1 (6));
+    nodes.mouseDoubleClick (event ({ x, 30 }, {}));
+    CHECK (processor->apvts.getRawParameterValue ("fineDb3")->load() == 0);
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); rateAndDisplay(); concurrentHostAndAudio();
+    stateAndLearning(); fineTuning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

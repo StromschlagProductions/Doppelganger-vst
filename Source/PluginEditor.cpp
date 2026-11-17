@@ -42,9 +42,18 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     s.append (u8 ("DOPPELGANGER – Hilfe") + u8 (" · v") + juce::String (PLUGIN_VERSION_TEXT) + "\n\n",
               juce::Font (juce::FontOptions (17.0f, juce::Font::bold)), accent);
 
-    body ("Doppelganger gleicht die Klangfarbe einer Sprecherspur an eine feste Referenzstimme an und bringt sie auf die "
-          "Ziel-Lautheit. Mikrofon und Raum der Aufnahme werden so an den Standard des Projekts angepasst. Lowcut, Match-EQ, "
-          "De-Esser und Leveler stecken in einem Plugin.");
+    body ("Doppelganger gleicht Sprecherspuren an neutrale Sprecherprofile aus einem Berliner Profi-Studio an und bringt sie auf die "
+          "Ziel-Lautheit. Takes aus verschiedenen Heimstudios, mit verschiedenen Mikrofonen und Räumen, klingen danach, als wären sie "
+          "in derselben Kabine aufgenommen worden. Lowcut, Angleich-EQ, Feinabstimmung, De-Esser und Leveler stecken in einem Plugin.");
+
+    head ("SO ARBEITET ES");
+    body ("Im Plugin stecken drei neutrale Vorlagen: eine tiefe Männerstimme, eine mittlere und eine hohe Frauenstimme. "
+          "Beim Lernen misst Doppelganger das Klangbild, die Tonhöhe und die Lautheit der Spur. Aus dem Unterschied zur Vorlage "
+          "entsteht eine geglättete Korrekturkurve. Angeglichen wird die Färbung von Mikrofon und Raum, nicht die Stimme selbst: "
+          "ein Bass bleibt ein Bass, eine helle Stimme bleibt hell.");
+    body ("Weg durchs Plugin: Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, dann Grundverstärkung und Leveler. Latenzfrei.");
+    note ("Gedacht für Dialog in Hörspielen, Hörbüchern und Podcasts. Nicht für Gesang, Effektstimmen oder als Rauschunterdrückung: "
+          "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
     head ("STIMME LERNEN");
     body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Es prüft selbst, ob das Klangbild "
@@ -76,7 +85,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     head ("FEINABSTIMMUNG");
     body ("Optional: fünf frei einstellbare Glockenfilter nach dem Angleich. Damit lässt sich die Spur direkt im Plugin nachschärfen, ohne zusätzlichen EQ in der Slotkette. "
           "Standard: alle Bänder 0 dB, Feinabstimmung aus, der Klang bleibt dann unverändert.");
-    body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. "
+    body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. Umschalt macht Ziehen und Mausrad feiner. "
           "Ziehen schaltet die Feinabstimmung automatisch ein. Die Regler darunter stellen dieselben Werte als Zahl ein.");
     body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe.");
 
@@ -115,6 +124,31 @@ FineNodes::FineNodes (juce::AudioProcessorValueTreeState& s)
         b.q = s.getParameter ("fineQ" + n);
     }
     on = s.getParameter ("fineOn");
+}
+
+void FineNodes::refresh (double rate)
+{
+    rate = dop::validSampleRate (rate);
+    std::array<float, 16> values {};
+    values[0] = on->getValue();
+    for (size_t k = 0; k < bands.size(); ++k)
+    {
+        values[1 + 3 * k] = bands[k].hz->getValue();
+        values[2 + 3 * k] = bands[k].db->getValue();
+        values[3 + 3 * k] = bands[k].q->getValue();
+    }
+    if (! snapshotReady || values != lastValues || sampleRate != rate)
+    { lastValues = values; sampleRate = rate; snapshotReady = true; repaint(); }
+}
+
+void FineNodes::mouseMove (const juce::MouseEvent& e)
+{
+    const int k = nearestBand (e.position, 18.0f);
+    if (k < 0) { setTooltip ({}); return; }
+    const auto& b = bands[(size_t) k];
+    setTooltip ("Band " + juce::String (k + 1) + ": " + juce::String (valueOf (b.hz), 0) + " Hz, "
+        + juce::String (valueOf (b.db), 1) + " dB, Q " + juce::String (valueOf (b.q), 2)
+        + juce::String::fromUTF8 (". Ziehen: Frequenz/Pegel. Mausrad: Q. Umschalt: fein. Doppelklick: 0 dB."));
 }
 
 bool FineNodes::active() const { return on != nullptr && on->getValue() > 0.5f; }
@@ -169,18 +203,19 @@ void FineNodes::paint (juce::Graphics& g)
 
     // Frequenzgang der Feinabstimmung als Summe der Baender
     std::array<dop::Biquad, dop::kFineBands> coefs {};
-    for (int k = 0; k < dop::kFineBands; ++k)
+    if (on_) for (int k = 0; k < dop::kFineBands; ++k)
     {
         const auto& b = bands[(size_t) k];
-        coefs[(size_t) k] = dop::peaking (48000.0, valueOf (b.hz), valueOf (b.q), valueOf (b.db));
+        coefs[(size_t) k] = dop::fineCoefficient (sampleRate, valueOf (b.hz), valueOf (b.db), valueOf (b.q));
     }
     juce::Path curve;
     for (int i = 0; i <= 120; ++i)
     {
         const float f = kFineMinHz * std::pow (kFineMaxHz / kFineMinHz, (float) i / 120.0f);
+        if (f >= sampleRate * 0.5) break;
         double sum = 0.0;
         if (on_)
-            for (const auto& c : coefs) sum += dop::magnitudeDb (c, 48000.0, f);
+            for (const auto& c : coefs) sum += dop::magnitudeDb (c, sampleRate, f);
         const float x = w * (float) i / 120.0f;
         const float y = yOfDb ((float) sum);
         if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
@@ -204,13 +239,16 @@ void FineNodes::paint (juce::Graphics& g)
 
 void FineNodes::mouseDown (const juce::MouseEvent& e)
 {
+    endDrag();
+    if (! e.mods.isLeftButtonDown()) return;
     selected = nearestBand (e.position, 18.0f);
     if (selected < 0) return;
     const auto& b = bands[(size_t) selected];
     b.hz->beginChangeGesture();
     b.db->beginChangeGesture();
-    b.q->beginChangeGesture();
     on->beginChangeGesture();
+    dragOrigin = e.position;
+    dragNode = nodeAt (selected);
     dragging = true;
 }
 
@@ -218,22 +256,26 @@ void FineNodes::mouseDrag (const juce::MouseEvent& e)
 {
     if (! dragging || selected < 0) return;
     const auto& b = bands[(size_t) selected];
-    const float ratio = juce::jlimit (0.0f, 1.0f, e.position.x / (float) getWidth());
+    const auto position = dragNode + (e.position - dragOrigin) * (e.mods.isShiftDown() ? 0.15f : 1.0f);
+    dragOrigin = e.position;
+    dragNode = position;
+    const float ratio = juce::jlimit (0.0f, 1.0f, position.x / (float) getWidth());
     const float hz = kFineMinHz * std::pow (kFineMaxHz / kFineMinHz, ratio);
     setValue (b.hz, juce::jlimit (kFineMinHz, kFineMaxHz, hz));
-    setValue (b.db, dbOfY (e.position.y));
+    setValue (b.db, dbOfY (position.y));
     if (! active()) setValue (on, 1.0f);   // Ziehen schaltet die Feinabstimmung ein
     repaint();
 }
 
-void FineNodes::mouseUp (const juce::MouseEvent&)
+void FineNodes::mouseUp (const juce::MouseEvent&) { endDrag(); repaint(); }
+
+void FineNodes::endDrag()
 {
     if (dragging && selected >= 0)
     {
         const auto& b = bands[(size_t) selected];
         b.hz->endChangeGesture();
         b.db->endChangeGesture();
-        b.q->endChangeGesture();
         on->endChangeGesture();
     }
     dragging = false;
@@ -243,6 +285,7 @@ void FineNodes::mouseUp (const juce::MouseEvent&)
 
 void FineNodes::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    endDrag();
     const int k = nearestBand (e.position, 18.0f);
     if (k < 0) return;
     const auto& b = bands[(size_t) k];
@@ -255,13 +298,14 @@ void FineNodes::mouseDoubleClick (const juce::MouseEvent& e)
 void FineNodes::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
     const int k = nearestBand (e.position, 18.0f);
-    if (k < 0 || wheel.deltaY == 0.0f) return;
+    if (dragging || k < 0 || wheel.deltaY == 0.0f) return;
     const auto& b = bands[(size_t) k];
-    const float q = juce::jlimit (0.3f, 8.0f, valueOf (b.q) * std::pow (2.0f, wheel.deltaY * 2.0f));
+    const float q = juce::jlimit (0.3f, 8.0f, valueOf (b.q) * std::pow (2.0f, wheel.deltaY * (wheel.isReversed ? -1.0f : 1.0f) * (e.mods.isShiftDown() ? 0.3f : 2.0f)));
     b.q->beginChangeGesture();
     setValue (b.q, std::round (q * 100.0f) / 100.0f);
     b.q->endChangeGesture();
     if (! active()) { on->beginChangeGesture(); setValue (on, 1.0f); on->endChangeGesture(); }
+    mouseMove (e);
     repaint();
 }
 
@@ -404,7 +448,6 @@ void DoppelgangerEditor::updateLearnButton()
     forgetButton.setEnabled (shown.profile.valid || learning);
     deessOnButton.setButtonText (deessOnButton.getToggleState() ? "AN" : "AUS");
     fineOnButton.setButtonText (fineOnButton.getToggleState() ? "AN" : "AUS");
-    fineNodes.repaint();
 }
 
 void DoppelgangerEditor::timerCallback()
@@ -414,6 +457,7 @@ void DoppelgangerEditor::timerCallback()
     const int interval = visible ? 40 : 200;
     if (getTimerInterval() != interval) startTimer (interval);
     if (! visible) return;
+    fineNodes.refresh (proc.getAnalysisSampleRate());
     const auto oldHeadline = headline, oldStatus = statusText;
     const auto oldCorrection = shown.correction;
     const auto oldCurve = shown.profile.curveDb;

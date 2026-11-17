@@ -36,17 +36,20 @@ public:
 };
 
 // Feinabstimmung in der Anzeige: Baender ziehen (waagerecht Frequenz, senkrecht Verstaerkung, Mausrad Guete)
-class FineNodes : public juce::Component
+class FineNodes : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit FineNodes (juce::AudioProcessorValueTreeState& s);
+    ~FineNodes() override { endDrag(); }
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
+    void refresh (double rate);
     juce::Colour accent, text, dim;
 
 private:
@@ -55,6 +58,11 @@ private:
     juce::RangedAudioParameter* on = nullptr;
     int selected = -1;
     bool dragging = false;
+    double sampleRate = 48000;
+    std::array<float, 16> lastValues {};
+    bool snapshotReady = false;
+    juce::Point<float> dragOrigin, dragNode;
+    void endDrag();
 
     bool active() const;
     float valueOf (juce::RangedAudioParameter*) const;
