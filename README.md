@@ -55,6 +55,7 @@ arbeitet latenzfrei und ab dem ersten Sample, egal wo die Wiedergabe startet.
 
 **Die Feinabstimmung.** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
 Bänder zu, direkt im Klangbild oder über die Regler. Ein zusätzlicher EQ in der Slotkette ist dafür nicht nötig.
+Die Feinabstimmung ist auf Sauberkeit geprüft: Ausgeschaltet oder mit allen Bändern auf 0 dB läuft das Signal bitgenau unverändert durch, +6 dB am Regler ergeben auch +6 dB im Klang, und Änderungen werden weich überblendet, damit beim Automatisieren nichts knackt. Kein Band kann über die halbe Abtastrate hinaus (die sogenannte Nyquist-Grenze) gestellt werden: Die Frequenz ist auf 45 % der Abtastrate begrenzt. So bleiben alle Filter auch in Projekten mit niedriger Abtastrate stabil, von 22,05 bis 192 kHz geprüft.
 
 **Wofür es gedacht ist:** Dialogspuren für Hörspiele, Hörbücher und Podcasts, die zusammen klingen sollen.
 Nicht gedacht ist es für Gesang, für Effektstimmen (Funk, Telefon, Monster) oder als Rauschunterdrückung: Saubere,
