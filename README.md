@@ -133,6 +133,8 @@ Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plug
 
 **SOUNDJOB / Markus Hildebrandt** – Beta-Testing
 
+Ein großes Dankeschön an **Markus Hildebrandt** von SOUNDJOB. Markus betreibt ein eigenes Tonstudio und hat weit mehr Hörspiele produziert als ich. Er hat DOPPELGANGER im Studioalltag getestet und mir ehrliches, fachkundiges Feedback gegeben. Auf seine Anregung hin gibt es seit Version 1.2 die optionale Feinabstimmung mit fünf frei einstellbaren Bändern. Dafür danke ich ihm sehr: Seine Erfahrung hat das Plugin spürbar besser gemacht.
+
 ---
 
 ## Hinweis / Disclaimer
