@@ -1,5 +1,25 @@
 # Änderungen
 
+## 1.4 – 17. November 2026
+
+Nach Rückmeldungen aus dem Praxistest: Angleich-Bereich mit Begrenzern, ein De-Esser, der nur auf Zischlaute reagiert, und eine prüfbare Lautheitsanzeige.
+
+### Neu
+
+- **Angleich-Bereich:** Zwei Begrenzer im Klangbild, wie man es vom Match EQ in Ozone kennt. Angeglichen wird nur dazwischen, außerhalb bleibt der Take unverändert (weicher Übergang über eine Drittel-Oktave). Ziehen am Griff unten oder an der Linie, Umschalt = fein, Doppelklick = Standard. Neue Parameter „Angleich ab“ (20 Hz – 2 kHz) und „Angleich bis“ (1 – 20 kHz), automatisierbar.
+- **Standard oben 12 kHz:** Die Referenzen sind oberhalb davon nicht mehr verlässlich. Bisher zog die Korrektur dort die Höhen des Takes mit herunter; jetzt bleiben sie, wie sie sind.
+- **Gemessene Lautheit:** In der Karte LAUTHEIT steht die Lautheit des Ausgangs, integriert nach EBU R128 (Pausen ausgeblendet). Sie beginnt bei jedem Wiedergabestart neu, Klick setzt sie zurück, orange = innerhalb ±1 LU um das Ziel. Der Momentanwert oben im Klangbild heißt jetzt MOMENTAN.
+
+### Verbessert
+
+- **De-Esser:** Die Erkennung vergleicht jetzt das Zischband (steiler Hochpass ab der eingestellten Frequenz, oben bei 12 kHz begrenzt) mit dem tiefen Stimmbereich statt mit dem Gesamtsignal und reagiert schneller. Gemessen an drei Sprachaufnahmen: Zischlaute bei Standardstärke 2,7–4,4 dB abgesenkt (vorher 0,2–0,5 dB), bei voller Stärke 6,3–9,6 dB (vorher 2,4–3,2 dB). Stimmhafte Abschnitte werden bei voller Stärke nur noch in 0,8–2,1 % der Zeit um mehr als 1 dB abgesenkt (vorher 9–15 %). Einzelheiten in [docs/DEESSER_1.4.md](docs/DEESSER_1.4.md).
+
+### Kompatibilität
+
+Bestehende Projekte öffnen mit dem neuen Angleich-Bereich (unten keine Grenze, oben 12 kHz) und dem neuen De-Esser. Oberhalb von 12 kHz und bei den S-Lauten klingen sie deshalb etwas anders als mit 1.3. Wer den alten Höhenverlauf möchte, zieht den rechten Begrenzer ganz nach rechts. Alle bisherigen Parameter-IDs bleiben erhalten.
+
+[Release-Hinweise](docs/releases/1.4.md)
+
 ## 1.3 – 17. November 2026
 
 - LISTEN spielt die tatsächlich entfernten De-Esser-Anteile ab (Differenz vor/nach Absenkung). Aktiv zeigt der Knopf DIFF.

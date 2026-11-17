@@ -67,15 +67,21 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
 
     head ("ANGLEICHUNG und LOWCUT");
     body ("Angleichung: wie stark die Klangfarbe an die Referenz angeglichen wird. 100 % = ganz, 60 % (Standard) = Mikrofon und Raum werden "
-          "angeglichen, die eigene Farbe der Stimme bleibt. Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt. "
-          "Die Referenzen enden bei 16 kHz, darüber bleibt der Take unverändert.");
+          "angeglichen, die eigene Farbe der Stimme bleibt. Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt.");
+    body ("Angleich-Bereich: Im Klangbild stehen links und rechts zwei orange Begrenzer. Angeglichen wird nur dazwischen, außerhalb bleibt der Take "
+          "unverändert (weicher Übergang über eine Drittel-Oktave). Am Griff unten am Rand oder an der Linie ziehen, Umschalt = fein, Doppelklick = Standard. "
+          "Standard: unten keine Grenze, oben 12 kHz. Darüber sind die Referenzen nicht mehr verlässlich, die Höhen des Takes bleiben deshalb, wie sie sind. "
+          "Den rechten Begrenzer zum Beispiel auf 8 bis 10 kHz ziehen, wenn die Luft einer Stimme erhalten bleiben soll, den linken auf 100 bis 150 Hz, wenn "
+          "der Nahbesprechungs-Bass eines Sprechers nicht angefasst werden soll.");
     body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz.");
-    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe), hell mit Punkten 1 bis 5 die Feinabstimmung. Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
+    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe), hell mit Punkten 1 bis 5 die Feinabstimmung, abgedunkelt der Bereich außerhalb der Begrenzer. Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
 
     head ("DE-ESSER");
-    body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 dB, "
-          "bei 100 % etwa 10 dB. Vokale bleiben unberührt. Frequenz: ab hier sucht und bearbeitet der De-Esser die S-Laute (Standard 5,5 kHz). "
+    body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 bis 4 dB, "
+          "bei 100 % etwa 6 bis 10 dB. Frequenz: ab hier sucht und bearbeitet der De-Esser die S-Laute (Standard 5,5 kHz). "
           "Tiefer bei dumpfen oder männlichen Stimmen, höher bei hellen.");
+    body ("Erkannt wird ein Zischlaut daran, dass oberhalb der Frequenz mehr Energie liegt als im tiefen Stimmbereich darunter. Bei Vokalen ist es umgekehrt, "
+          "deshalb greift der De-Esser nur bei S, Z, Sch, F und scharfen T zu und lässt helle Vokale in Ruhe.");
     body ("Rechts daneben zeigt die Anzeige, was der De-Esser gerade tut: der Balken hängt von oben herunter, so tief wie die aktuelle Absenkung (0 bis 12 dB), "
           "der Strich markiert die letzte Spitze. Daneben läuft ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter S-Laut, der gedämpft wurde. "
           "Bleibt die Anzeige leer, erkennt er keine S-Laute, dann ist die Stärke zu niedrig oder die Frequenz passt nicht.");
@@ -94,6 +100,10 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
           "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Die Gesamtlautheit ändert er nicht.");
+    body ("Messwert oben rechts in der Karte: die gemessene Lautheit des Ausgangs, integriert nach EBU R128, wie sie ein Loudness-Meter am Ende einer "
+          "Passage anzeigt (Pausen werden ausgeblendet). Die Messung beginnt bei jedem Wiedergabestart neu, ein Klick setzt sie sofort zurück. "
+          "Orange heißt: innerhalb von ±1 LU um das Ziel. Erst nach einigen Sekunden Sprache ist der Wert aussagekräftig.");
+    note ("Oben im Klangbild steht zusätzlich MOMENTAN: die Lautheit der letzten 0,4 Sekunden. Sie springt mit der Sprache und fällt in Pausen ab, zum Prüfen des Ziels taugt nur der integrierte Wert.");
 
     head ("Allgemein");
     body ("Doppelganger ist latenzfrei und hat bewusst keinen Limiter. Spitzen fängt der Limiter auf dem Master ab.");
@@ -113,6 +123,27 @@ namespace
 constexpr float kFineMinHz = 40.0f, kFineMaxHz = 20000.0f, kFineRangeDb = 12.0f;
 }
 
+void IntegratedLoudness::set (float lufs, float seconds, float target)
+{
+    if (std::abs (lufs - value) < 0.05f && std::abs (target - goal) < 0.05f && (int) seconds == (int) secs) return;
+    value = lufs; secs = seconds; goal = target;
+    const int s = (int) seconds;
+    setTooltip (juce::String::fromUTF8 ("Gemessene Lautheit des Ausgangs, integriert nach EBU R128 (Pausen werden ausgeblendet), seit ")
+        + juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2)
+        + juce::String::fromUTF8 (" min. Beginnt bei jedem Wiedergabestart neu, Klick setzt sie sofort zurück."));
+    repaint();
+}
+
+void IntegratedLoudness::paint (juce::Graphics& g)
+{
+    const bool has = value > -99.0f;
+    const bool onTarget = has && std::abs (value - goal) <= 1.0f;
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setColour (has ? (onTarget ? accent : text) : dim);
+    const juce::String t = has ? juce::String (value, 1) + " LUFS" : juce::String::fromUTF8 ("– LUFS");
+    g.drawText (t, getLocalBounds(), juce::Justification::centredRight);
+}
+
 FineNodes::FineNodes (juce::AudioProcessorValueTreeState& s)
 {
     for (int k = 0; k < dop::kFineBands; ++k)
@@ -124,13 +155,56 @@ FineNodes::FineNodes (juce::AudioProcessorValueTreeState& s)
         b.q = s.getParameter ("fineQ" + n);
     }
     on = s.getParameter ("fineOn");
+    matchLo = s.getParameter ("matchLow");
+    matchHi = s.getParameter ("matchHigh");
+}
+
+float FineNodes::xOfHz (float hz) const
+{
+    return getWidth() * std::log2 (hz / kFineMinHz) / std::log2 (kFineMaxHz / kFineMinHz);
+}
+
+float FineNodes::hzOfX (float x) const
+{
+    return kFineMinHz * std::pow (kFineMaxHz / kFineMinHz, juce::jlimit (0.0f, 1.0f, x / (float) getWidth()));
+}
+
+// Begrenzer greifen: an der Linie (±6 px) oder am Griff oben. Knoten der Feinabstimmung haben Vorrang.
+int FineNodes::nearestLimiter (juce::Point<float> p) const
+{
+    int best = -1;
+    float bestD = 7.0f;
+    for (int k = 0; k < 2; ++k)
+    {
+        const float x = juce::jlimit (3.0f, (float) getWidth() - 3.0f, xOfHz (valueOf (limiterParam (k))));
+        const float d = std::abs (p.x - x) - (inGrip (p) ? 4.0f : 0.0f);
+        if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+}
+
+void FineNodes::setLimiterHz (int k, float hz)
+{
+    if (k == 0)
+    {
+        hz = hz < 45.0f ? dop::kMatchLoMin : juce::jlimit (dop::kMatchLoMin, dop::kMatchLoMax, hz);   // ganz links = keine Grenze
+        hz = std::min (hz, valueOf (matchHi) / 1.5f);
+    }
+    else
+    {
+        hz = hz > 18000.0f ? dop::kMatchHiMax : juce::jlimit (dop::kMatchHiMin, dop::kMatchHiMax, hz);   // ganz rechts = keine Grenze
+        hz = std::max (hz, valueOf (matchLo) * 1.5f);
+    }
+    setValue (limiterParam (k), hz);
 }
 
 void FineNodes::refresh (double rate)
 {
     rate = dop::validSampleRate (rate);
-    std::array<float, 16> values {};
+    std::array<float, 18> values {};
     values[0] = on->getValue();
+    values[16] = matchLo->getValue();
+    values[17] = matchHi->getValue();
     for (size_t k = 0; k < bands.size(); ++k)
     {
         values[1 + 3 * k] = bands[k].hz->getValue();
@@ -143,8 +217,19 @@ void FineNodes::refresh (double rate)
 
 void FineNodes::mouseMove (const juce::MouseEvent& e)
 {
-    const int k = nearestBand (e.position, 18.0f);
-    if (k < 0) { setTooltip ({}); return; }
+    const int k = inGrip (e.position) && nearestLimiter (e.position) >= 0 ? -1 : nearestBand (e.position, 18.0f);   // Griffe oben haben Vorrang
+    if (k < 0)
+    {
+        const int l = nearestLimiter (e.position);
+        setMouseCursor (l >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+        if (l < 0) { setTooltip ({}); return; }
+        auto* p = limiterParam (l);
+        setTooltip (juce::String::fromUTF8 (l == 0 ? "Angleich ab " : "Angleich bis ") + p->getCurrentValueAsText()
+            + juce::String::fromUTF8 (l == 0 ? ". Darunter bleibt der Take unverändert. Ziehen: verschieben, Umschalt: fein, Doppelklick: ganz nach links."
+                                             : ". Darüber bleibt der Take unverändert. Ziehen: verschieben, Umschalt: fein, Doppelklick: zurück auf 12 kHz."));
+        return;
+    }
+    setMouseCursor (juce::MouseCursor::NormalCursor);
     const auto& b = bands[(size_t) k];
     setTooltip ("Band " + juce::String (k + 1) + ": " + juce::String (valueOf (b.hz), 0) + " Hz, "
         + juce::String (valueOf (b.db), 1) + " dB, Q " + juce::String (valueOf (b.q), 2)
@@ -197,6 +282,31 @@ void FineNodes::paint (juce::Graphics& g)
     const float w = (float) getWidth(), h = (float) getHeight();
     const bool on_ = active();
 
+    // Angleich-Bereich: ausserhalb abgedunkelt, Begrenzer als Linie mit Griff oben
+    {
+        const float xl = juce::jlimit (0.0f, w, xOfHz (valueOf (matchLo)));
+        const float xr = juce::jlimit (0.0f, w, xOfHz (valueOf (matchHi)));
+        g.setColour (juce::Colours::black.withAlpha (text.getPerceivedBrightness() < 0.5f ? 0.10f : 0.28f));   // heller Look: dezenter
+        if (xl > 0.5f) g.fillRect (0.0f, 0.0f, xl, h);
+        if (xr < w - 0.5f) g.fillRect (xr, 0.0f, w - xr, h);
+        for (int k = 0; k < 2; ++k)
+        {
+            const float x = juce::jlimit (1.5f, w - 1.5f, k == 0 ? xl : xr);
+            const bool hot = limiter == k;
+            g.setColour (accent.withAlpha (hot ? 1.0f : 0.75f));
+            g.drawLine (x, 18.0f, x, h, hot ? 2.0f : 1.4f);   // oben frei fuer die Messzeile
+            const float tx = k == 0 ? x : x - 9.0f, ty = h - 15.0f;   // Griff unten am Rand
+            g.fillRoundedRectangle (tx, ty, 9.0f, 15.0f, 2.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            for (float gy : { 4.5f, 7.5f, 10.5f }) g.drawHorizontalLine ((int) (ty + gy), tx + 2.0f, tx + 7.0f);
+            g.setColour (text.withAlpha (0.85f));
+            g.setFont (juce::FontOptions (9.5f));
+            const auto label = limiterParam (k)->getCurrentValueAsText();
+            if (k == 0) g.drawText (label, (int) x + 4, (int) h - 30, 70, 12, juce::Justification::centredLeft);
+            else        g.drawText (label, (int) x - 74, (int) h - 30, 70, 12, juce::Justification::centredRight);
+        }
+    }
+
     // Mittellinie = 0 dB
     g.setColour (dim.withAlpha (0.35f));
     g.drawHorizontalLine ((int) (h * 0.5f), 0.0f, w);
@@ -241,8 +351,17 @@ void FineNodes::mouseDown (const juce::MouseEvent& e)
 {
     endDrag();
     if (! e.mods.isLeftButtonDown()) return;
-    selected = nearestBand (e.position, 18.0f);
-    if (selected < 0) return;
+    selected = inGrip (e.position) && nearestLimiter (e.position) >= 0 ? -1 : nearestBand (e.position, 18.0f);
+    if (selected < 0)
+    {
+        limiter = nearestLimiter (e.position);
+        if (limiter < 0) return;
+        limiterParam (limiter)->beginChangeGesture();
+        limiterX = juce::jlimit (0.0f, (float) getWidth(), xOfHz (valueOf (limiterParam (limiter))));
+        dragOrigin = e.position;
+        repaint();
+        return;
+    }
     const auto& b = bands[(size_t) selected];
     b.hz->beginChangeGesture();
     b.db->beginChangeGesture();
@@ -254,6 +373,15 @@ void FineNodes::mouseDown (const juce::MouseEvent& e)
 
 void FineNodes::mouseDrag (const juce::MouseEvent& e)
 {
+    if (limiter >= 0)
+    {
+        limiterX += (e.position.x - dragOrigin.x) * (e.mods.isShiftDown() ? 0.15f : 1.0f);
+        dragOrigin = e.position;
+        setLimiterHz (limiter, hzOfX (limiterX));
+        mouseMove (e);
+        repaint();
+        return;
+    }
     if (! dragging || selected < 0) return;
     const auto& b = bands[(size_t) selected];
     const auto position = dragNode + (e.position - dragOrigin) * (e.mods.isShiftDown() ? 0.15f : 1.0f);
@@ -271,6 +399,7 @@ void FineNodes::mouseUp (const juce::MouseEvent&) { endDrag(); repaint(); }
 
 void FineNodes::endDrag()
 {
+    if (limiter >= 0) { limiterParam (limiter)->endChangeGesture(); limiter = -1; }
     if (dragging && selected >= 0)
     {
         const auto& b = bands[(size_t) selected];
@@ -286,8 +415,18 @@ void FineNodes::endDrag()
 void FineNodes::mouseDoubleClick (const juce::MouseEvent& e)
 {
     endDrag();
-    const int k = nearestBand (e.position, 18.0f);
-    if (k < 0) return;
+    const int k = inGrip (e.position) && nearestLimiter (e.position) >= 0 ? -1 : nearestBand (e.position, 18.0f);
+    if (k < 0)
+    {
+        const int l = nearestLimiter (e.position);
+        if (l < 0) return;
+        auto* p = limiterParam (l);
+        p->beginChangeGesture();
+        setValue (p, l == 0 ? dop::kMatchLoDefault : dop::kMatchHiDefault);
+        p->endChangeGesture();
+        repaint();
+        return;
+    }
     const auto& b = bands[(size_t) k];
     b.db->beginChangeGesture();
     setValue (b.db, 0.0f);
@@ -364,6 +503,8 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     fineOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "fineOn", fineOnButton);
     content.addAndMakeVisible (fineOnButton);
     content.addAndMakeVisible (fineNodes);
+    intLoudness.onReset = [this] { proc.getEngine().resetIntegrated(); };
+    content.addAndMakeVisible (intLoudness);
     auto fine = [this] (juce::Slider& s, std::unique_ptr<APVTS::SliderAttachment>& att, const juce::String& id,
                         const juce::String& tip, double reset)
     {
@@ -459,6 +600,10 @@ void DoppelgangerEditor::timerCallback()
     if (getTimerInterval() != interval) startTimer (interval);
     if (! visible) return;
     fineNodes.refresh (proc.getAnalysisSampleRate());
+    {
+        auto& e = proc.getEngine();
+        intLoudness.set (e.meterIntLufs.load(), e.meterIntSeconds.load(), proc.apvts.getRawParameterValue ("target")->load());
+    }
     const auto oldHeadline = headline, oldStatus = statusText;
     const auto oldCorrection = shown.correction;
     const auto oldCurve = shown.profile.curveDb;
@@ -554,6 +699,7 @@ void DoppelgangerEditor::applyTheme()
         k->label.setColour (juce::Label::textColourId, theme.dim);
     for (auto& b : fineBands)
         b.name.setColour (juce::Label::textColourId, theme.dim);
+    intLoudness.accent = theme.accent; intLoudness.text = theme.text; intLoudness.dim = theme.dim; intLoudness.repaint();
     fineNodes.accent = theme.accent;
     fineNodes.text = theme.text;
     fineNodes.dim = theme.dim;
@@ -744,7 +890,7 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     // Messwerte
     {
         auto& e = proc.getEngine();
-        const juce::String m = u8 ("AUSGANG ") + juce::String (e.meterOutLufs.load(), 1) + u8 (" LUFS   ·   GRUND ")
+        const juce::String m = u8 ("MOMENTAN ") + juce::String (e.meterOutLufs.load(), 1) + u8 (" LUFS   ·   GRUND ")
                                + fmtDb (e.meterStaticDb.load()) + u8 ("   ·   LEVELER ") + fmtDb (e.meterRideDb.load())
                                + u8 ("   ·   DE-ESSER ") + fmtDb (-e.meterDeessDb.load());
         g.setColour (theme.dim);
@@ -837,6 +983,7 @@ void DoppelgangerEditor::resized()
     // Feinabstimmung unten: Schalter links, fuenf Baender mit Frequenz, Verstaerkung und Guete
     fineOnButton.setBounds (24, 478, 70, 28);
     fineNodes.setBounds (22, 182, w - 44, 108);
+    intLoudness.setBounds (580, 314, 80, 18);
     for (int k = 0; k < dop::kFineBands; ++k)
     {
         auto& b = fineBands[(size_t) k];

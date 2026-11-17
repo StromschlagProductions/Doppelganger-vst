@@ -11,6 +11,8 @@ DoppelgangerProcessor::DoppelgangerProcessor()
     pAmount = apvts.getRawParameterValue ("amount");
     pRegister = apvts.getRawParameterValue ("register");
     pLowcut = apvts.getRawParameterValue ("lowcut");
+    pMatchLo = apvts.getRawParameterValue ("matchLow");
+    pMatchHi = apvts.getRawParameterValue ("matchHigh");
     pDeess = apvts.getRawParameterValue ("deess");
     pLeveler = apvts.getRawParameterValue ("leveler");
     pTarget = apvts.getRawParameterValue ("target");
@@ -58,6 +60,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoppelgangerProcessor::creat
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "lowcut", 1 }, "Lowcut", lcRange, 80.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
             { return v <= 20.5f ? String ("aus") : String (juce::roundToInt (v)) + " Hz"; })));
+
+    // Angleich-Bereich: nur dazwischen wird angeglichen, ausserhalb bleibt der Take unveraendert
+    auto hzText = [] (float v, int) { return v >= 1000.0f ? String (v / 1000.0f, v >= 10000.0f ? 1 : 2) + " kHz" : String (juce::roundToInt (v)) + " Hz"; };
+    NormalisableRange<float> mloRange (dop::kMatchLoMin, dop::kMatchLoMax, 1.0f);
+    mloRange.setSkewForCentre (200.0f);
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "matchLow", 1 }, "Angleich ab", mloRange, dop::kMatchLoDefault,
+        AudioParameterFloatAttributes().withStringFromValueFunction ([hzText] (float v, int n)
+            { return v <= dop::kMatchLoMin + 0.5f ? String ("ganz unten") : hzText (v, n); })));
+    NormalisableRange<float> mhiRange (dop::kMatchHiMin, dop::kMatchHiMax, 10.0f);
+    mhiRange.setSkewForCentre (6000.0f);
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "matchHigh", 1 }, "Angleich bis", mhiRange, dop::kMatchHiDefault,
+        AudioParameterFloatAttributes().withStringFromValueFunction ([hzText] (float v, int n)
+            { return v >= dop::kMatchHiMax - 0.5f ? String ("ganz oben") : hzText (v, n); })));
 
     params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "deessOn", 1 }, "De-Esser an", true));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "deess", 1 }, String (CharPointer_UTF8 ("De-Esser Stärke")),
@@ -154,6 +169,14 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         p.fineQ[k] = pFineQ[k]->load();
     }
     engine.setParams (p);
+
+    if (auto* ph = getPlayHead())
+        if (const auto pos = ph->getPosition())
+        {
+            const bool playing = pos->getIsPlaying();
+            if (playing && ! wasPlaying) engine.resetIntegrated();
+            wasPlaying = playing;
+        }
 
     {
         const juce::SpinLock::ScopedTryLockType tl (bankLock);
@@ -269,7 +292,8 @@ void DoppelgangerProcessor::timerCallback()
 
     const float amount = pAmount->load(), lowcut = pLowcut->load();
     const int reg = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
-    if (amount != lastAmount || lowcut != lastLowcut || reg != lastRegister)
+    const float mlo = pMatchLo->load(), mhi = pMatchHi->load();
+    if (amount != lastAmount || lowcut != lastLowcut || reg != lastRegister || mlo != lastMatchLo || mhi != lastMatchHi)
         designDirty = true;
     if (designDirty.load())
         redesign();
@@ -335,6 +359,8 @@ void DoppelgangerProcessor::redesign()
     lastAmount = dop::finiteClamp (pAmount->load(), 0, 100, 60);
     lastLowcut = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
     lastRegister = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
+    lastMatchLo = pMatchLo->load();
+    lastMatchHi = pMatchHi->load();
 
     dop::BankDesign d = dop::flatBank();
     {
@@ -344,7 +370,7 @@ void DoppelgangerProcessor::redesign()
         info.fitErrorDb = 0.0f;
         if (info.profile.valid && lastAmount > 0.0f)
         {
-            info.correction = dop::correctionCurve (info.profile.curveDb, info.effectiveRegister, lastAmount * 0.01f, lastLowcut);
+            info.correction = dop::correctionCurve (info.profile.curveDb, info.effectiveRegister, lastAmount * 0.01f, lastLowcut, lastMatchLo, lastMatchHi);
             d = dop::fitBank (info.correction, currentFs);
             info.fitErrorDb = d.maxErrorDb;
         }

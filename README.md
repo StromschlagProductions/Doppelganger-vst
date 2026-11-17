@@ -47,7 +47,8 @@ Tonhöhe wählt es die passende Vorlage.
 **Das Angleichen.** Aus dem Unterschied zwischen gelernter Stimme und Vorlage berechnet das Plugin eine
 Korrekturkurve und baut daraus einen EQ mit 26 Bändern. Die Kurve ist bewusst geglättet: Angeglichen wird die
 Färbung von Mikrofon und Raum, nicht die Stimme selbst. Ein Bass bleibt ein Bass, eine helle Stimme bleibt hell, sie
-klingen nur, als stünden sie vor demselben Mikrofon. Wie weit das geht, bestimmt der Regler **Angleichung**.
+klingen nur, als stünden sie vor demselben Mikrofon. Wie weit das geht, bestimmt der Regler **Angleichung**. Welcher
+Frequenzbereich überhaupt angeglichen wird, legen zwei Begrenzer im Klangbild fest; außerhalb bleibt der Take unverändert.
 
 **Der Weg durchs Plugin.** Lowcut → Angleich-EQ → Feinabstimmung → De-Esser → Grundverstärkung und Leveler.
 Am Ende steht die Spur auf der Ziel-Lautheit (Standard −23 LUFS), sanft geglättet und ohne harte S-Laute. Alles
@@ -89,13 +90,15 @@ und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten di
 |---|---|---|
 | Klang | **Angleichung** | Wie stark die Klangfarbe an die Referenz angeglichen wird. Standard 60 %: Mikrofon und Raum werden angeglichen, die eigene Stimmfarbe bleibt. Nur die Klangform, nie der Pegel; höchstens ±9 dB. |
 | Klang | **Lowcut** | 24 dB/Oktave, 20–200 Hz (ganz links = aus), Standard 80 Hz. |
+| Klang | **Angleich-Bereich** | Zwei Begrenzer im Klangbild (orange Linien mit Griff unten): Angeglichen wird nur dazwischen, außerhalb bleibt der Take unverändert, mit weichem Übergang über eine Drittel-Oktave. Links 20 Hz – 2 kHz (Standard: keine Grenze), rechts 1 – 20 kHz (Standard 12 kHz, weil die Referenzen darüber nicht mehr verlässlich sind). Ziehen, Umschalt = fein, Doppelklick = Standard. Beispiel: rechts auf 8–10 kHz, damit die Luft einer Stimme erhalten bleibt; links auf 100–150 Hz, damit der Nahbesprechungs-Bass unangetastet bleibt. |
 | De-Esser | **AN / AUS** | Schaltet den De-Esser gezielt ab, zum Vergleich. |
-| De-Esser | **Stärke** | Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Vokale bleiben unberührt. |
+| De-Esser | **Stärke** | Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3–4 dB, 100 % ≈ 6–10 dB. Erkannt wird ein Zischlaut daran, dass oberhalb der Frequenz mehr Energie liegt als im tiefen Stimmbereich; helle Vokale bleiben deshalb unberührt. |
 | De-Esser | **Frequenz** | 3–10 kHz, Standard 5,5 kHz: ab hier sucht und bearbeitet der De-Esser die S-Laute. |
 | De-Esser | **Anzeige** | Balken = aktuelle Absenkung (0 bis 12 dB, Strich = letzte Spitze), daneben ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter und gedämpfter S-Laut. |
 | De-Esser | **LISTEN** | Spielt die tatsächlich entfernten Anteile ab (Differenz vor/nach der Absenkung). Ohne Absenkung bleibt es still. Aktiv zeigt der Knopf **DIFF**; für den normalen Klang wieder ausschalten. |
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
+| Lautheit | **Messwert** | Oben rechts in der Karte: gemessene Lautheit des Ausgangs, integriert nach EBU R128 (Pausen ausgeblendet), wie ein Loudness-Meter am Ende einer Passage. Beginnt bei jedem Wiedergabestart neu, Klick = zurücksetzen. Orange = innerhalb ±1 LU um das Ziel. |
 | Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |
 | Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
 
@@ -105,7 +108,7 @@ Limiter; Spitzen fängt der Limiter auf dem Master ab.
 
 Die Grundverstärkung rechnet die Feinabstimmung mit ein: Hebt man Bänder an, bleibt die Spur trotzdem auf dem Ziel, nur die Klangfarbe ändert sich.
 
-**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur, hell mit Punkten 1 bis 5 die Feinabstimmung. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
+**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur, hell mit Punkten 1 bis 5 die Feinabstimmung, abgedunkelt der Bereich außerhalb der Angleich-Begrenzer. Oben steht **MOMENTAN** (Lautheit der letzten 0,4 s, springt mit der Sprache), dazu Grundverstärkung, Leveler und De-Esser. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
 
 Oberfläche: Look Dunkel/Hell, Fenster frei skalierbar (50–300 %, Start bei 150 %), Hilfe über den **?**-Knopf,
 Tooltips an allen Reglern.
@@ -139,6 +142,8 @@ Wenige Regler heißen nicht, dass hier etwas schnell zusammengeschustert wurde. 
 - **Echtzeitsicher:** Während der Wiedergabe wird kein Speicher angefordert und nirgends gewartet. Das verhindert Aussetzer und Knackser, auch bei kleinen Puffern und vielen Instanzen.
 - **Saubere Feinabstimmung:** ausgeschaltet bitgenau unverändert, +6 dB am Regler ergeben +6 dB im Klang, kein Filter über der Nyquist-Grenze (siehe oben).
 - **Geprüft von 22,05 bis 192 kHz** Abtastrate, mit vielen verschiedenen Puffergrößen.
+- **De-Esser an echter Sprache vermessen:** An drei Sprachaufnahmen senkt er Zischlaute bei Standardstärke um 3 bis 4 dB ab, bei Vokalen im Mittel um weniger als 0,1 dB ([Messung](docs/DEESSER_1.4.md)).
+- **Lautheit nachgemessen:** Fünf Sprachaufnahmen landen nach dem Lernen zwischen −22,1 und −23,4 LUFS (Ziel −23), integriert nach EBU R128. Die eingebaute Messung ist mit einem 1-kHz-Sinus geeicht.
 
 Ob es gut klingt, entscheidet am Ende das Ohr. Deshalb geht jede Version auch durch den Studioalltag von Markus Hildebrandt (siehe unten).
 

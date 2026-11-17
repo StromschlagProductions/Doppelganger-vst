@@ -216,9 +216,26 @@ void fineMouseTests()
     CHECK (processor->apvts.getRawParameterValue ("fineDb3")->load() == 0);
 }
 
+void matchRange()
+{
+    auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (48000, 128);
+    p->startLearning(); feed (*p, 48000, 5); p->finishLearning();
+    DoppelgangerProcessorTestAccess::tick (*p);
+    auto set = [&] (const char* id, float v) { auto* q = p->apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); DoppelgangerProcessorTestAccess::tick (*p); };
+    CHECK (std::abs (p->apvts.getRawParameterValue ("matchHigh")->load() - 12000.0f) < 1.0f);   // Standard: bis 12 kHz
+    set ("matchLow", 300.0f); set ("matchHigh", 4000.0f);
+    const auto c = p->getDisplayInfo().correction;
+    for (int i = 0; i < dop::kRefGridPoints; ++i)
+        if (dop::kRefGridHz[i] < 230.0f || dop::kRefGridHz[i] > 5100.0f) CHECK (c[(size_t) i] == 0.0f);
+    juce::MemoryBlock state; p->getStateInformation (state);
+    auto q = std::make_unique<DoppelgangerProcessor>(); q->prepareToPlay (48000, 128);
+    q->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*q);
+    CHECK (std::abs (q->apvts.getRawParameterValue ("matchLow")->load() - 300.0f) < 1.0f);
+    { float md = 0; const auto c2 = q->getDisplayInfo().correction; for (size_t i = 0; i < c.size(); ++i) md = std::max (md, std::abs (c2[i] - c[i])); CHECK (md < 1e-3f); }
+}
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
+    stateAndLearning(); fineTuning(); matchRange(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

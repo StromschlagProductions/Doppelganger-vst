@@ -542,8 +542,27 @@ inline double gridInterp (const GridCurve& c, double hz)
 }
 
 // amount: 0..1, lowcutHz <= 20 = Lowcut aus
-inline GridCurve correctionCurve (const GridCurve& take, int reg, float amount, float lowcutHz)
+// Angleich-Bereich: unterhalb von matchLoHz und oberhalb von matchHiHz bleibt der Take unveraendert.
+// Die Korrektur blendet jenseits der Grenze ueber eine Drittel-Oktave weich auf 0 dB aus.
+constexpr float kMatchLoMin = 20.0f, kMatchLoMax = 2000.0f, kMatchHiMin = 1000.0f, kMatchHiMax = 20000.0f;
+constexpr float kMatchLoDefault = 20.0f, kMatchHiDefault = 12000.0f;
+
+inline double matchRangeWeight (double f, double loHz, double hiHz)
 {
+    constexpr double fadeOct = 1.0 / 3.0;
+    auto edge = [] (double octOutside) { return octOutside <= 0.0 ? 1.0 : (octOutside >= fadeOct ? 0.0 : 0.5 + 0.5 * std::cos (dop::kPi * octOutside / fadeOct)); };
+    double w = 1.0;
+    if (loHz > kMatchLoMin + 0.5) w *= edge (std::log2 (loHz / f));
+    if (hiHz < kMatchHiMax - 0.5) w *= edge (std::log2 (f / hiHz));
+    return w;
+}
+
+inline GridCurve correctionCurve (const GridCurve& take, int reg, float amount, float lowcutHz,
+                                  float matchLoHz = kMatchLoMin, float matchHiHz = kMatchHiMax)
+{
+    matchLoHz = finiteClamp (matchLoHz, kMatchLoMin, kMatchLoMax, kMatchLoMin);
+    matchHiHz = finiteClamp (matchHiHz, kMatchHiMin, kMatchHiMax, kMatchHiMax);
+    matchHiHz = std::max (matchHiHz, matchLoHz * 1.5f);   // mindestens gut eine halbe Oktave Bereich
     const float* ref = referenceCurve (reg);
     const double cutoff = referenceCutoffHz (reg);
     GridCurve delta {};
@@ -588,7 +607,7 @@ inline GridCurve correctionCurve (const GridCurve& take, int reg, float amount, 
         const double fadeIn = lowcutHz > 20.0f ? std::clamp (std::log2 (f / lowcutHz) / 0.5, 0.0, 1.0) : 1.0;
         const double fadeTop = f <= 16000.0 ? 1.0 : (f >= 20000.0 ? 0.5 : 1.0 - 0.5 * (f - 16000.0) / 4000.0);
         const double fadeBand = f <= cutoff * 0.85 ? 1.0 : (f >= cutoff ? 0.0 : (cutoff - f) / (cutoff * 0.15));
-        out[(size_t) i] = (float) (d * fadeIn * fadeTop * fadeBand);
+        out[(size_t) i] = (float) (d * fadeIn * fadeTop * fadeBand * matchRangeWeight (f, matchLoHz, matchHiHz));
     }
     return out;
 }
@@ -597,6 +616,11 @@ inline GridCurve correctionCurve (const GridCurve& take, int reg, float amount, 
 //  Filterbank: 26 Glockenfilter im Terzabstand (50 Hz - 16 kHz), Verstaerkungen per Ausgleichsrechnung
 //==============================================================================
 constexpr int kBands = 26;
+// De-Esser-Abstimmung (an echten Sprachaufnahmen gemessen, siehe docs/DEESSER_1.4.md)
+constexpr double kDeessThr0 = 0.0, kDeessThrPerAmt = 6.0;   // Schwelle Zischband gegen Stimmbereich: 0 dB bis -6 dB
+constexpr double kDeessMax0 = 3.0, kDeessMaxPerAmt = 11.0;  // maximale Absenkung: 3 dB bis 14 dB
+constexpr double kDeessSlope = 1.0;                          // je dB ueber der Schwelle 1 dB Absenkung
+constexpr double kDeessRelease = 0.015, kDeessDetRelease = 0.004;   // Sekunden
 constexpr int kFineBands = 5;   // Feinabstimmung: Anzahl Glockenfilter (Standard alle 0 dB)
 constexpr double kBandQ = 2.1;
 
@@ -866,6 +890,11 @@ public:
 
     std::atomic<float> meterRideDb { 0.0f }, meterStaticDb { 0.0f }, meterDeessDb { 0.0f }, meterDeessPeakDb { 0.0f },
                        meterInLufs { -100.0f }, meterOutLufs { -100.0f }, meterOutPeakDb { -100.0f };
+    // Integrierte Ausgangslautheit nach ITU-R BS.1770 / EBU R128 (400-ms-Bloecke, 75 % Ueberlappung,
+    // absolutes Gate -70 LUFS, relatives Gate -10 LU). -100 = noch keine Messung. Gleiche Kanalbehandlung wie das Ziel.
+    std::atomic<float> meterIntLufs { -100.0f }, meterIntSeconds { 0.0f };
+    std::atomic<bool> intResetRequest { false };
+    void resetIntegrated() noexcept { intResetRequest.store (true); }
 
     void prepare (double sampleRate)
     {
@@ -878,9 +907,13 @@ public:
         for (auto& b : bank[1]) b = Biquad {};
         listenStep = 1.0 / std::max (1.0, std::round (0.01 * fs));
         fadeLen = std::max (1, (int) std::lround (0.03 * fs));
+        hopLen = std::max (1, (int) std::lround (0.1 * fs));
+        clearIntegrated();
         loudCoef = 1.0 - std::exp (-1.0 / (0.4 * fs));
         envAtt = 1.0 - std::exp (-1.0 / (0.0005 * fs));
-        envRel = 1.0 - std::exp (-1.0 / (0.05 * fs));
+        envRel = 1.0 - std::exp (-1.0 / (kDeessRelease * fs));
+        detAtt = 1.0 - std::exp (-1.0 / (0.001 * fs));
+        detRel = 1.0 - std::exp (-1.0 / (kDeessDetRelease * fs));
         const double dt = 16.0 / fs;
         staticCoef = 1.0 - std::exp (-dt / 0.05);
         rideOffCoef = 1.0 - std::exp (-dt / 0.5);
@@ -907,7 +940,7 @@ public:
             for (auto& s : ch.lc) s.reset();
             for (auto& s : ch.eq[0]) s.reset();
             for (auto& s : ch.eq[1]) s.reset();
-            for (auto* s : { &ch.dh, &ch.ds, &ch.k1, &ch.k2, &ch.o1, &ch.o2 }) s->reset();
+            for (auto* s : { &ch.dh, &ch.dh2, &ch.dt, &ch.dl, &ch.dl2, &ch.ds, &ch.k1, &ch.k2, &ch.o1, &ch.o2 }) s->reset();
         }
         fading = false; fadePos = 0;
         hiPow = fullPow = 0.0; deessGain = 1.0; shelfDb = 0.0; shelf = Biquad {};
@@ -961,7 +994,16 @@ public:
         if (p.deessFreqHz != lastDeessFreq)
         {
             lastDeessFreq = p.deessFreqHz;
-            deessHp = highPass (fs, std::min ((double) p.deessFreqHz, 0.45 * fs), 0.7071);
+            // Erkennung: Zischband (Butterworth-Hochpass 4. Ordnung ab der Frequenz, oben bei 12 kHz begrenzt)
+            // gegen den tiefen Stimmbereich (Tiefpass 4. Ordnung). Vokale haben unten viel mehr Energie als oben,
+            // Zischlaute umgekehrt. So reagiert der De-Esser auf S, Z, Sch und scharfe T, nicht auf helle Vokale.
+            const double fHi = std::min ((double) p.deessFreqHz, 0.40 * fs);
+            const double fLo = std::min (3000.0, 0.55 * fHi);
+            deessHp = highPass (fs, fHi, 0.5412);
+            deessHp2 = highPass (fs, fHi, 1.3066);
+            deessTop = lowPass (fs, std::min (12000.0, 0.45 * fs), 0.7071);
+            deessLow = lowPass (fs, fLo, 0.5412);
+            deessLow2 = lowPass (fs, fLo, 1.3066);
             shelfDb = 1.0;   // Shelf beim naechsten Takt neu berechnen
         }
     }
@@ -984,11 +1026,14 @@ public:
     {
         numCh = std::min (numCh, kMaxCh);
         if (numCh <= 0) return;
+        if (intResetRequest.exchange (false)) clearIntegrated();
         const double invCh = 1.0 / numCh;
         // De-Esser: Schwelle (Anteil der Hoehen ueber der Frequenz an der Gesamtleistung) und maximale Absenkung
         const double dAmt = params.deessOn ? std::clamp ((double) params.deess, 0.0, 1.0) : 0.0;
-        const double dThr = -6.0 - 10.0 * dAmt;
-        const double dMax = 12.0 * dAmt;
+        // Schwelle: Zischband gegen tiefen Stimmbereich. Vokale liegen bei etwa -20 dB und tiefer, Zischlaute darueber.
+        const double dThr = kDeessThr0 - kDeessThrPerAmt * dAmt;
+        const double dMax = kDeessMax0 + kDeessMaxPerAmt * dAmt;
+        const double dSlope = kDeessSlope;
         double minDeessGain = 1, peak = 0;
 
         for (int i = 0; i < n; ++i)
@@ -1016,9 +1061,10 @@ public:
                 }
                 e = fineEq.process (c, e);
                 y[c] = e;
-                hi[c] = ch.dh.process (deessHp, e);
+                hi[c] = ch.dt.process (deessTop, ch.dh2.process (deessHp2, ch.dh.process (deessHp, e)));
+                const double lo = ch.dl2.process (deessLow2, ch.dl.process (deessLow, e));
                 hiP += hi[c] * hi[c];
-                fullP += e * e;
+                fullP += lo * lo;   // tiefer Stimmbereich als Vergleich
             }
             fineEq.advance();
             if (tap != nullptr) tap[i] = (float) (tapSum * invCh);
@@ -1026,14 +1072,14 @@ public:
 
             // De-Esser (Kanaele gekoppelt): erkennt Zischlaute am Hoehenanteil, senkt per Hoehen-Shelf ab
             hiP *= invCh; fullP *= invCh;
-            hiPow += (hiP > hiPow ? envAtt : envRel) * (hiP - hiPow);
-            fullPow += (fullP > fullPow ? envAtt : envRel) * (fullP - fullPow);
+            hiPow += (hiP > hiPow ? detAtt : detRel) * (hiP - hiPow);
+            fullPow += (fullP > fullPow ? detAtt : detRel) * (fullP - fullPow);
             double targetGain = 1.0;
-            if (dAmt > 0.0 && hiPow > 1e-9)
+            if (dAmt > 0.0 && hiPow > 1e-8)   // unter etwa -80 dBFS im Zischband: Stille, nichts tun
             {
                 const double ratioDb = 10.0 * std::log10 (hiPow / (fullPow + 1e-20));
                 if (ratioDb > dThr)
-                    targetGain = std::pow (10.0, -std::min (dMax, (ratioDb - dThr) * (2.0 / 3.0)) / 20.0);
+                    targetGain = std::pow (10.0, -std::min (dMax, (ratioDb - dThr) * dSlope) / 20.0);
             }
             deessGain += (targetGain < deessGain ? envAtt : envRel) * (targetGain - deessGain);
             minDeessGain = std::min (minDeessGain, deessGain);
@@ -1070,6 +1116,8 @@ public:
             }
             msK += loudCoef * (kpIn * invCh - msK);
             outMs += loudCoef * (kpOut * invCh - outMs);
+            hopAcc += kpOut * invCh;
+            if (++hopPos >= hopLen) { integrateHop (hopAcc / hopLen); hopAcc = 0.0; hopPos = 0; }
         }
         const double maxDe = -20.0 * std::log10 (minDeessGain);
         meterRideDb.store ((float) ride2);
@@ -1081,6 +1129,49 @@ public:
         meterOutLufs.store ((float) (-0.691 + 10.0 * std::log10 (outMs + 1e-20)));
         meterOutPeakDb.store ((float) (20.0 * std::log10 (peak + 1e-12)));
     }
+
+    // Histogramm-Klassen: 0,05 LU breit, -70 bis +10 LUFS -> integrierter Wert auf etwa 0,03 LU genau, ohne Speicheranforderung
+    static constexpr int kIntBins = 1600;
+    static constexpr double kIntBinLu = 0.05, kIntMinLufs = -70.0;
+
+private:
+    void integrateHop (double meanSquare)
+    {
+        hops[(size_t) hopIdx] = meanSquare;
+        hopIdx = (hopIdx + 1) % 4;
+        if (hopsFilled < 4) { ++hopsFilled; if (hopsFilled < 4) return; }
+        const double block = 0.25 * (hops[0] + hops[1] + hops[2] + hops[3]);
+        const double lufs = -0.691 + 10.0 * std::log10 (block + 1e-20);
+        intSeconds += 0.1;
+        if (lufs > kIntMinLufs)
+        {
+            const int bin = std::clamp ((int) ((lufs - kIntMinLufs) / kIntBinLu), 0, kIntBins - 1);
+            ++intHist[(size_t) bin];
+            ++intCount;
+        }
+        meterIntSeconds.store ((float) intSeconds);
+        if (intCount == 0) { meterIntLufs.store (-100.0f); return; }
+        auto energyOf = [] (int b) { return std::pow (10.0, (kIntMinLufs + (b + 0.5) * kIntBinLu + 0.691) / 10.0); };
+        double sum = 0;
+        for (int b = 0; b < kIntBins; ++b) if (intHist[(size_t) b] != 0) sum += intHist[(size_t) b] * energyOf (b);
+        const double gate = -0.691 + 10.0 * std::log10 (sum / intCount) - 10.0;
+        const int gateBin = std::clamp ((int) std::ceil ((gate - kIntMinLufs) / kIntBinLu - 0.5), 0, kIntBins);
+        double gs = 0; uint64_t gn = 0;
+        for (int b = gateBin; b < kIntBins; ++b) if (intHist[(size_t) b] != 0) { gs += intHist[(size_t) b] * energyOf (b); gn += intHist[(size_t) b]; }
+        meterIntLufs.store (gn > 0 ? (float) (-0.691 + 10.0 * std::log10 (gs / (double) gn)) : -100.0f);
+    }
+    void clearIntegrated()
+    {
+        intHist.fill (0); intCount = 0; hops.fill (0.0); hopIdx = 0; hopsFilled = 0; hopAcc = 0.0; hopPos = 0; intSeconds = 0.0;
+        meterIntLufs.store (-100.0f); meterIntSeconds.store (0.0f);
+    }
+    std::array<uint32_t, kIntBins> intHist {};
+    uint64_t intCount = 0;
+    std::array<double, 4> hops {};
+    int hopIdx = 0, hopsFilled = 0, hopLen = 4800, hopPos = 0;
+    double hopAcc = 0.0, intSeconds = 0.0;
+
+public:
 
 private:
     static bool isNeutral (const std::array<Biquad, kBands>& c)
@@ -1142,7 +1233,7 @@ private:
     {
         std::array<BiquadState, 2> lc;
         std::array<std::array<BiquadState, kBands>, 2> eq;
-        BiquadState dh, ds, k1, k2, o1, o2;
+        BiquadState dh, dh2, dt, dl, dl2, ds, k1, k2, o1, o2;
 
     };
 
@@ -1151,7 +1242,7 @@ private:
     FineEq fineEq;
     bool fineDirty = true;
     std::array<Chan, kMaxCh> chans;
-    Biquad lc[2], kShelf, kHp, deessHp, shelf;
+    Biquad lc[2], kShelf, kHp, deessHp, deessHp2, deessTop, deessLow, deessLow2, shelf;
     bool lcOn = true;
     float lastLowcut = -1.0f, lastDeessFreq = -1.0f;
     std::array<std::array<Biquad, kBands>, 2> bank {};
@@ -1161,6 +1252,7 @@ private:
     std::array<Biquad, kBands> queuedBank {};
     int fadePos = 0, fadeLen = 1440;
 
+    double detAtt = 0, detRel = 0;
     double envAtt = 0, envRel = 0, hiPow = 0, fullPow = 0, deessGain = 1, shelfDb = 0;
     double loudCoef = 0, msK = 0, outMs = 0;
     double staticDb = 0, ride1 = 0, ride2 = 0, gainRide = 1;

@@ -56,10 +56,14 @@ private:
     struct Band { juce::RangedAudioParameter* hz = nullptr; juce::RangedAudioParameter* db = nullptr; juce::RangedAudioParameter* q = nullptr; };
     std::array<Band, dop::kFineBands> bands {};
     juce::RangedAudioParameter* on = nullptr;
+    juce::RangedAudioParameter* matchLo = nullptr;   // Angleich-Bereich: linker und rechter Begrenzer
+    juce::RangedAudioParameter* matchHi = nullptr;
+    int limiter = -1;                                // 0 = links, 1 = rechts, waehrend des Ziehens
+    float limiterX = 0;
     int selected = -1;
     bool dragging = false;
     double sampleRate = 48000;
-    std::array<float, 16> lastValues {};
+    std::array<float, 18> lastValues {};
     bool snapshotReady = false;
     juce::Point<float> dragOrigin, dragNode;
     void endDrag();
@@ -70,7 +74,26 @@ private:
     juce::Point<float> nodeAt (int k) const;
     int nearestBand (juce::Point<float> p, float maxDist) const;
     float yOfDb (float db) const;
+    float xOfHz (float hz) const;
+    float hzOfX (float x) const;
+    int nearestLimiter (juce::Point<float> p) const;
+    bool inGrip (juce::Point<float> p) const { return p.y > (float) getHeight() - 18.0f; }   // Griffbereich unten: Begrenzer vor Knoten
+    juce::RangedAudioParameter* limiterParam (int k) const { return k == 0 ? matchLo : matchHi; }
+    void setLimiterHz (int k, float hz);
     float dbOfY (float y) const;
+};
+
+// Integrierte Ausgangslautheit in der Kopfzeile der Karte LAUTHEIT; Klick setzt die Messung zurueck
+class IntegratedLoudness : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override { if (onReset) onReset(); }
+    void set (float lufs, float seconds, float target);
+    std::function<void()> onReset;
+    juce::Colour accent, text, dim;
+private:
+    float value = -100.0f, secs = 0.0f, goal = -23.0f;
 };
 
 class DoppelgangerEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -121,6 +144,7 @@ private:
     juce::TextButton fineOnButton;
     std::unique_ptr<APVTS::ButtonAttachment> fineOnAtt;
     FineNodes fineNodes { proc.apvts };
+    IntegratedLoudness intLoudness;
 
     juce::TextButton learnButton, forgetButton, deessOnButton, deessListenButton, themeButton, helpButton;
     std::unique_ptr<APVTS::ButtonAttachment> deessOnAtt, deessListenAtt;

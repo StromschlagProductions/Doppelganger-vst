@@ -105,7 +105,7 @@ private:
     // Gelerntes und Anzeige
     DisplayInfo info;
     std::atomic<bool> designDirty { true };
-    float lastAmount = -1.0f, lastLowcut = -1.0f;
+    float lastAmount = -1.0f, lastLowcut = -1.0f, lastMatchLo = -1.0f, lastMatchHi = -1.0f;
     int lastRegister = -1;
     double currentFs = 48000.0;
 
@@ -126,6 +126,9 @@ private:
     std::atomic<float>* pAmount = nullptr;
     std::atomic<float>* pRegister = nullptr;
     std::atomic<float>* pLowcut = nullptr;
+    bool wasPlaying = false;   // Wiedergabestart -> integrierte Lautheitsmessung neu beginnen
+    std::atomic<float>* pMatchLo = nullptr;
+    std::atomic<float>* pMatchHi = nullptr;
     std::atomic<float>* pDeess = nullptr;
     std::atomic<float>* pLeveler = nullptr;
     std::atomic<float>* pDeessOn = nullptr;

@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "TestSupport.h"
 #include "../Source/LiveSpectrum.h"
 #include <limits>
@@ -139,6 +140,29 @@ void learningTests()
         auto correction = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80);
         for (float v : correction) CHECK (std::isfinite (v) && std::abs (v) <= 9.001);
         const auto bank = dop::fitBank (correction, fs); CHECK (std::isfinite (bank.maxErrorDb) && bank.maxErrorDb < 5);
+        // Angleich-Bereich: ausserhalb 0 dB, innen unveraendert, Uebergang hoechstens eine Drittel-Oktave
+        {
+            const auto full = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80, 20, 20000);
+            const auto lim = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80, 200, 6000);
+            for (int i = 0; i < dop::kRefGridPoints; ++i)
+            {
+                const double f = dop::kRefGridHz[i];
+                if (f < 200 / std::pow (2.0, 1.0 / 3) || f > 6000 * std::pow (2.0, 1.0 / 3)) CHECK (std::abs (lim[(size_t) i]) < 1e-6f);
+                if (f >= 200 && f <= 6000) CHECK (lim[(size_t) i] == full[(size_t) i]);
+            }
+            const auto def = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80);
+            CHECK (def == full);   // ohne Angabe keine Grenze (Abwaertskompatibilitaet der Funktion)
+            const auto crossed = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80, 2000, 1000);   // vertauscht: wird abgefangen
+            for (float v : crossed) CHECK (std::isfinite (v));
+            // Gefilterter Frequenzgang folgt: bei 15 kHz mit Grenze 10 kHz praktisch keine Korrektur
+            const auto hiLim = dop::correctionCurve (p.curveDb, dop::kTief, 1, 80, 20, 10000);
+            if (fs >= 44100) {
+            const auto b2 = dop::fitBank (hiLim, fs);
+            double resp = 0; for (const auto& c : b2.coeffs) resp += dop::magnitudeDb (c, fs, 15000.0);
+            if (std::getenv ("DOP_VERBOSE")) std::printf ("Bereich: fs %d, 15 kHz %.2f dB\n", (int) fs, resp);
+            CHECK (std::abs (resp) < 1.0);
+            }
+        }
         dop::ConvergenceTracker tracker;
         CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (tracker.update (p));
         tracker.reset(); CHECK (! tracker.update (p));
@@ -264,4 +288,70 @@ void removedListenTests()
     }
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+// De-Esser reagiert auf Zischlaute, nicht auf helle Vokale
+void deesserSelectivity()
+{
+    const int fs = 48000, n = fs;
+    std::vector<float> vowel ((size_t) n), sib ((size_t) n);
+    uint32_t r = 12345;
+    auto noise = [&] { r = r * 1664525u + 1013904223u; return (double) (int32_t) r / 2147483648.0; };
+    for (int i = 0; i < n; ++i)   // heller Vokal: Obertoene von 180 Hz bis 6 kHz, -6 dB/Oktave
+    {
+        double v = 0;
+        for (int h = 1; 180 * h < 9000; ++h)   // helles A: Formanten um 800 Hz und 2,8 kHz, Glanz bis 9 kHz
+        {
+            const double f = 180.0 * h;
+            const double g = 1.0 / h + 0.5 * std::exp (-std::pow ((f - 800) / 300, 2)) + 0.15 * std::exp (-std::pow ((f - 2800) / 500, 2)) + 0.02;
+            v += g * std::sin (2 * dop::kPi * f * i / fs);
+        }
+        vowel[(size_t) i] = (float) (0.05 * v);
+    }
+    auto bp = dop::highPass (fs, 5000, 0.7071), lp = dop::lowPass (fs, 10000, 0.7071);
+    dop::BiquadState s1, s2;
+    for (int i = 0; i < n; ++i)   // S mit Stimmanteil darunter (wie im Wort, Uebergang zum Vokal)
+        sib[(size_t) i] = (float) (0.15 * s2.process (lp, s1.process (bp, noise())) + 0.4 * vowel[(size_t) i]);
+    auto reductionDb = [&] (const std::vector<float>& x, float amount)
+    {
+        auto run = [&] (bool on)
+        {
+            dop::Engine e; e.prepare (fs);
+            dop::EngineParams p = bypass(); p.deessOn = on; p.deess = amount; p.deessFreqHz = 5500;
+            e.setParams (p); e.setBank (dop::flatBank().coeffs); e.reset();
+            auto y = x;
+            for (int o = 0; o < n; o += 256) { float* q[] = { y.data() + o }; e.process (q, 1, std::min (256, n - o), nullptr); }
+            auto hp = dop::highPass (fs, 5000, 0.7071); dop::BiquadState h1;
+            double acc = 0; for (int i = n / 4; i < n; ++i) { const double v = h1.process (hp, y[(size_t) i]); acc += v * v; }
+            return acc;
+        };
+        return 10.0 * std::log10 (run (true) / run (false));
+    };
+    const double dv = reductionDb (vowel, 0.25f), ds = reductionDb (sib, 0.25f);
+    const double dvMax = reductionDb (vowel, 1.0f), dsMax = reductionDb (sib, 1.0f);
+    if (std::getenv ("DOP_VERBOSE")) std::printf ("De-Esser: Standard Vokal %.2f / S %.2f dB, voll Vokal %.2f / S %.2f dB\n", dv, ds, dvMax, dsMax);
+    CHECK (dv > -0.3 && dvMax > -0.5);   // heller Vokal bleibt praktisch unberuehrt, auch bei voller Staerke
+    CHECK (ds < -3.2);                   // Zischlaut wird schon bei Standardstaerke deutlich abgesenkt (1.3: -2,6 dB)
+    CHECK (dsMax < ds - 2.0);            // mehr Staerke = mehr Absenkung
+}
+
+// Integrierte Lautheit: Eichung mit 997-Hz-Sinus und Gate (Stille zaehlt nicht)
+void integratedLoudnessTests()
+{
+    for (double fs : { 44100., 48000., 96000. })
+    {
+        dop::Engine e; e.prepare (fs);
+        dop::EngineParams p = bypass(); p.lowcutHz = 20; p.deessOn = false;
+        e.setParams (p); e.setBank (dop::flatBank().coeffs); e.reset();
+        const int n = (int) fs * 16;
+        std::vector<float> x ((size_t) n);
+        for (int i = 0; i < n; ++i) x[(size_t) i] = i < (int) fs * 6 ? (float) (0.1 * std::sin (2 * dop::kPi * 997.0 * i / fs)) : 0.0f;   // 6 s Ton, 10 s Stille
+        for (int o = 0; o < n; o += 512) { float* q[] = { x.data() + o }; e.process (q, 1, std::min (512, n - o), nullptr); }
+        const float L = e.meterIntLufs.load();
+        if (std::getenv ("DOP_VERBOSE")) std::printf ("Integriert fs %.0f: %.2f LUFS nach %.1f s\n", fs, L, e.meterIntSeconds.load());
+        CHECK (std::abs (L - (-23.0f)) < 0.15f);   // Sinus 0,1 Spitze = -23,0 LUFS; Stille wird vom Gate ausgeblendet
+        e.resetIntegrated();
+        float* q[] = { x.data() }; e.process (q, 1, 64, nullptr);
+        CHECK (e.meterIntLufs.load() == -100.0f && e.meterIntSeconds.load() == 0.0f);
+    }
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }
