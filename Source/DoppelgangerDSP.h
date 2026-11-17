@@ -730,6 +730,83 @@ inline BankDesign fitBank (const GridCurve& target, double fs)
 //  Lautheitsaenderung durch den EQ abschaetzen (damit die Grundverstaerkung von Anfang an stimmt)
 //  Spektrum der gelernten Stimme (Leistungsdichte auf dem Log-Gitter) mit K-Gewichtung, mit und ohne Korrektur.
 //==============================================================================
+// Shared by audio, display and loudness estimate: never design a bell past Nyquist.
+inline Biquad fineCoefficient (double fs, float hz, float db, float q)
+{
+    fs = validSampleRate (fs);
+    return peaking (fs, std::min ((double) finiteClamp (hz, 40, 20000, 1000), fs * 0.45),
+                    finiteClamp (q, 0.3f, 8, 1), finiteClamp (db, -12, 12, 0));
+}
+
+// Audio-owned two-bank EQ. A new request never interrupts an ongoing fade.
+class FineEq
+{
+public:
+    using Bank = std::array<Biquad, kFineBands>;
+    void prepare (double sampleRate)
+    {
+        fs = validSampleRate (sampleRate);
+        fadeLength = std::max (1, (int) std::lround (0.03 * fs));
+        current = 0; fading = queued = false;
+        banks = {}; neutral[0] = neutral[1] = true;
+        reset();
+    }
+    void set (bool on, const std::array<float, kFineBands>& hz,
+              const std::array<float, kFineBands>& db, const std::array<float, kFineBands>& q)
+    {
+        Bank next {};
+        if (on) for (size_t k = 0; k < next.size(); ++k) next[k] = fineCoefficient (fs, hz[k], db[k], q[k]);
+        if (fading) { pending = next; queued = ! equal (next, banks[1 - current]); }
+        else if (! equal (next, banks[current])) begin (next);
+    }
+    void reset()
+    {
+        if (queued) banks[current] = pending;
+        else if (fading) current = 1 - current;
+        neutral[current] = isNeutral (banks[current]);
+        states = {}; fading = queued = false; position = 0;
+    }
+    double process (int channel, double x)
+    {
+        auto run = [&] (int bank)
+        {
+            double y = x;
+            if (! neutral[bank]) for (size_t k = 0; k < banks[bank].size(); ++k)
+                y = states[(size_t) channel][(size_t) bank][k].process (banks[bank][k], y);
+            return y;
+        };
+        const double a = run (current);
+        return fading ? a + (double) position / fadeLength * (run (1 - current) - a) : a;
+    }
+    void advance()
+    {
+        if (fading && ++position >= fadeLength) { current = 1 - current; fading = false; }
+        if (! fading && queued) { queued = false; if (! equal (pending, banks[current])) begin (pending); }
+    }
+private:
+    static bool equal (const Bank& a, const Bank& b)
+    {
+        for (size_t k = 0; k < a.size(); ++k)
+            if (a[k].b0 != b[k].b0 || a[k].b1 != b[k].b1 || a[k].b2 != b[k].b2
+                || a[k].a1 != b[k].a1 || a[k].a2 != b[k].a2) return false;
+        return true;
+    }
+    static bool isNeutral (const Bank& b) { return equal (b, Bank {}); }
+    void begin (const Bank& b)
+    {
+        const int next = 1 - current;
+        banks[next] = b; neutral[next] = isNeutral (b);
+        for (auto& ch : states) ch[(size_t) next] = {};
+        position = 0; fading = true;
+    }
+    double fs = 48000;
+    std::array<Bank, 2> banks {};
+    std::array<std::array<std::array<BiquadState, kFineBands>, 2>, 2> states {};
+    Bank pending {};
+    bool neutral[2] { true, true }, fading = false, queued = false;
+    int current = 0, position = 0, fadeLength = 1440;
+};
+
 // Frequenzgang der Feinabstimmung auf dem Referenzgitter (dB), fuer die Lautheitsrechnung
 inline GridCurve fineCurveDb (bool on, const std::array<float, kFineBands>& hz, const std::array<float, kFineBands>& db,
                               const std::array<float, kFineBands>& q, double fs)
@@ -740,8 +817,8 @@ inline GridCurve fineCurveDb (bool on, const std::array<float, kFineBands>& hz, 
     {
         const auto kk = (size_t) k;
         if (db[kk] == 0.0f) continue;
-        const Biquad c = peaking (fs, hz[kk], q[kk], db[kk]);
-        for (int i = 0; i < kRefGridPoints; ++i) out[(size_t) i] += (float) magnitudeDb (c, fs, kRefGridHz[i]);
+        const Biquad c = fineCoefficient (fs, hz[kk], db[kk], q[kk]);
+        for (int i = 0; i < kRefGridPoints; ++i) if (kRefGridHz[i] < fs * 0.5) out[(size_t) i] += (float) magnitudeDb (c, fs, kRefGridHz[i]);
     }
     return out;
 }
@@ -793,6 +870,8 @@ public:
     void prepare (double sampleRate)
     {
         fs = validSampleRate (sampleRate);
+        fineEq.prepare (fs);
+        fineDirty = true;
         kShelf = kWeightShelf (fs);
         kHp = kWeightHighPass (fs);
         for (auto& b : bank[0]) b = Biquad {};
@@ -820,9 +899,10 @@ public:
         if (bankQueued) { bank[cur] = queuedBank; neutral[cur] = isNeutral (queuedBank); }
         else if (fading) cur = 1 - cur;
         bankQueued = false;
+        fineEq.reset();
         for (auto& ch : chans)
         {
-            for (auto& st : ch.fine) st.reset();
+
             for (auto& s : ch.lc) s.reset();
             for (auto& s : ch.eq[0]) s.reset();
             for (auto& s : ch.eq[1]) s.reset();
@@ -856,20 +936,13 @@ public:
         p.takeLufs = finiteClamp (p.takeLufs, -100, 24, -100);
         p.rideOffsetDb = finiteClamp (p.rideOffsetDb, -8, 0, -2.5f);
         // Feinabstimmung: Koeffizienten nur bei Aenderung neu rechnen
-        const bool fineChanged = p.fineOn != params.fineOn || p.fineHz != params.fineHz
+        const bool fineChanged = fineDirty || p.fineOn != params.fineOn || p.fineHz != params.fineHz
                                  || p.fineDb != params.fineDb || p.fineQ != params.fineQ;
         params = p;
         if (fineChanged)
         {
-            bool any = false;
-            for (int k = 0; k < kFineBands; ++k)
-            {
-                const auto kk = (size_t) k;
-                fineCoef[kk] = peaking (fs, p.fineHz[kk], p.fineQ[kk], p.fineDb[kk]);
-                any = any || p.fineDb[kk] != 0.0f;
-            }
-            fineActive = p.fineOn && any;
-            if (! fineActive) for (auto& ch : chans) for (auto& st : ch.fine) st.reset();   // kein Nachklang beim Wiedereinschalten
+            fineDirty = false;
+            fineEq.set (p.fineOn, p.fineHz, p.fineDb, p.fineQ);
         }
         if (p.lowcutHz != lastLowcut)
         {
@@ -939,13 +1012,13 @@ public:
                     if (! neutral[1 - cur]) for (int k = 0; k < kBands; ++k) e2 = ch.eq[1 - cur][(size_t) k].process (bank[1 - cur][(size_t) k], e2);
                     e = e + a * (e2 - e);
                 }
-                if (fineActive)
-                    for (int k = 0; k < kFineBands; ++k) e = ch.fine[(size_t) k].process (fineCoef[(size_t) k], e);
+                e = fineEq.process (c, e);
                 y[c] = e;
                 hi[c] = ch.dh.process (deessHp, e);
                 hiP += hi[c] * hi[c];
                 fullP += e * e;
             }
+            fineEq.advance();
             if (tap != nullptr) tap[i] = (float) (tapSum * invCh);
             if (fading && ++fadePos >= fadeLen) { cur = 1 - cur; fading = false; }
 
@@ -1063,13 +1136,13 @@ private:
         std::array<BiquadState, 2> lc;
         std::array<std::array<BiquadState, kBands>, 2> eq;
         BiquadState dh, ds, k1, k2, o1, o2;
-        std::array<BiquadState, kFineBands> fine;
+
     };
 
     double fs = 48000.0;
     EngineParams params;
-    std::array<Biquad, kFineBands> fineCoef {};
-    bool fineActive = false;
+    FineEq fineEq;
+    bool fineDirty = true;
     std::array<Chan, kMaxCh> chans;
     Biquad lc[2], kShelf, kHp, deessHp, shelf;
     bool lcOn = true;

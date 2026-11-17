@@ -58,7 +58,7 @@ und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten di
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 | Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |
-| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. |
+| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
 
 Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
 ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen

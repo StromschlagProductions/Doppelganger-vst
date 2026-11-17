@@ -73,6 +73,7 @@ public:
     // die Kurven sind in dB (Mittel von 100-8000 Hz = 0) auf dem Referenzgitter.
     bool getLiveSpectrum (dop::GridCurve& inDb, dop::GridCurve& outDb);
     void setLiveSpectrumEnabled (bool enabled);
+    double getAnalysisSampleRate() const { const juce::ScopedLock guard (stateLock); return currentFs; }
     juce::var getUiProperty (const juce::Identifier&, const juce::var& fallback) const;
     void setUiProperty (const juce::Identifier&, const juce::var&);
 
