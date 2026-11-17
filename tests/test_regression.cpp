@@ -230,4 +230,38 @@ void fineRateAndAutomationTests()
     CHECK (changed.process (0, 0.123) == 0.123); // settled bypass has no stale filter tail
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); fineRateAndAutomationTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+void removedListenTests()
+{
+    for (double fs : { 22050., 44100., 48000., 96000., 192000. })
+    {
+        dop::Engine normal, monitor;
+        auto p = bypass(); p.deessOn = true; p.deess = 1; p.deessFreqHz = 3000;
+        normal.prepare (fs); monitor.prepare (fs); normal.setParams (p);
+        p.deessListen = true; monitor.setParams (p);
+        double removedEnergy = 0, processedEnergy = 0;
+        for (int i = 0; i < (int) fs; ++i)
+        {
+            float a = (float) (0.1 * std::sin (2 * dop::kPi * 6000 * i / fs)), b = a, original = a;
+            float* pa[] = { &a }; float* pb[] = { &b };
+            normal.process (pa, 1, 1, nullptr); monitor.process (pb, 1, 1, nullptr);
+            if (i > fs * 0.2)
+            {
+                CHECK (std::abs (a + b - original) < 1e-6f);
+                removedEnergy += (double) b * b; processedEnergy += (double) a * a;
+            }
+        }
+        CHECK (removedEnergy > processedEnergy); // actively removes this sustained sibilant
+        p.deessOn = false;
+        monitor.setParams (p);
+        for (int i = 0; i < (int) fs; ++i)
+        {
+            float x = (float) (0.1 * std::sin (i * .1)); float* ptr[] = { &x };
+            monitor.process (ptr, 1, 1, nullptr);
+            if (i > fs * .8) CHECK (std::abs (x) < 1e-7f);
+        }
+        monitor.reset(); // Listen + disabled De-Esser is silence immediately after reset.
+        float x = .1f; float* ptr[] = { &x }; monitor.process (ptr, 1, 1, nullptr); CHECK (x == 0);
+    }
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }

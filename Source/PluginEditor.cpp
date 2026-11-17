@@ -79,7 +79,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Rechts daneben zeigt die Anzeige, was der De-Esser gerade tut: der Balken hängt von oben herunter, so tief wie die aktuelle Absenkung (0 bis 12 dB), "
           "der Strich markiert die letzte Spitze. Daneben läuft ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter S-Laut, der gedämpft wurde. "
           "Bleibt die Anzeige leer, erkennt er keine S-Laute, dann ist die Stärke zu niedrig oder die Frequenz passt nicht.");
-    body ("Listen: spielt nur den Bereich ab, auf den der De-Esser hört. So findest du schnell die richtige Frequenz. Danach wieder ausschalten.");
+    body ("Listen: spielt nur die tatsächlich entfernten Anteile ab (Differenz vor/nach der De-Esser-Absenkung). So hörst du, welche S-Laute und Stimmanteile abgezogen werden. Ohne Absenkung hörst du nichts. Danach wieder ausschalten.");
     note ("Klingen die S-Laute eines Takes ohnehin schwach oder lispelnd, den De-Esser ausschalten.");
 
     head ("FEINABSTIMMUNG");
@@ -354,7 +354,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     deessOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "deessOn", deessOnButton);
     deessListenButton.setButtonText ("LISTEN");
     deessListenButton.setClickingTogglesState (true);
-    deessListenButton.setTooltip (u8 ("Nur den Bereich hören, auf den der De-Esser reagiert. Zum Einstellen der Frequenz, danach wieder aus."));
+    deessListenButton.setTooltip (u8 ("Nur die tatsächlich entfernten Anteile hören. Ohne Absenkung bleibt es still. Für den normalen Klang LISTEN ausschalten."));
     deessListenAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "deessListen", deessListenButton);
     content.addAndMakeVisible (deessOnButton);
     content.addAndMakeVisible (deessListenButton);
@@ -447,6 +447,7 @@ void DoppelgangerEditor::updateLearnButton()
     learnButton.setToggleState (learning, juce::dontSendNotification);
     forgetButton.setEnabled (shown.profile.valid || learning);
     deessOnButton.setButtonText (deessOnButton.getToggleState() ? "AN" : "AUS");
+    deessListenButton.setButtonText (deessListenButton.getToggleState() ? "DIFF" : "LISTEN");
     fineOnButton.setButtonText (fineOnButton.getToggleState() ? "AN" : "AUS");
 }
 

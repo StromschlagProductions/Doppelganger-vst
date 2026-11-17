@@ -14,7 +14,7 @@ aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbea
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Aktuelle Version: 1.2.** Neu ist die optionale Feinabstimmung: fünf frei einstellbare Bänder, um das angeglichene Ergebnis direkt im Plugin nachzuschärfen.
+**Aktuelle Version: 1.3.** Neu ist die optionale Feinabstimmung: fünf frei einstellbare Bänder, um das angeglichene Ergebnis direkt im Plugin nachzuschärfen.
 
 [Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.2.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
@@ -92,7 +92,7 @@ und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten di
 | De-Esser | **Stärke** | Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Vokale bleiben unberührt. |
 | De-Esser | **Frequenz** | 3–10 kHz, Standard 5,5 kHz: ab hier sucht und bearbeitet der De-Esser die S-Laute. |
 | De-Esser | **Anzeige** | Balken = aktuelle Absenkung (0 bis 12 dB, Strich = letzte Spitze), daneben ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter und gedämpfter S-Laut. |
-| De-Esser | **LISTEN** | Spielt nur den Bereich ab, auf den der De-Esser hört (zum Einstellen der Frequenz). |
+| De-Esser | **LISTEN** | Spielt die tatsächlich entfernten Anteile ab (Differenz vor/nach der Absenkung). Ohne Absenkung bleibt es still. Aktiv zeigt der Knopf **DIFF**; für den normalen Klang wieder ausschalten. |
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 | Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |

@@ -1,5 +1,13 @@
 # Änderungen
 
+## 1.3 – 17. November 2026
+
+- LISTEN spielt die tatsächlich entfernten De-Esser-Anteile ab (Differenz vor/nach Absenkung). Aktiv zeigt der Knopf DIFF.
+- Monitorwechsel über 10 ms geglättet; Grundverstärkung und Leveler wirken identisch auf Normal- und Differenzpfad.
+- Die De-Esser-Freigabe endet bei exakter Neutralstellung, sodass ohne Absenkung kein Rest durch die Differenzüberwachung hörbar bleibt.
+- Regressionen bei fünf Sample-Rates prüfen Signalrekonstruktion und Stille ohne Absenkung.
+
+
 ## 1.2 – 17. November 2026
 
 Neue optionale **Feinabstimmung**: fünf frei einstellbare Glockenfilter nach dem Angleich. Das angeglichene Ergebnis lässt sich damit direkt im Plugin nachschärfen, ohne zusätzlichen EQ in der Slotkette. Anregung aus dem Beta-Test von Markus Hildebrandt (SOUNDJOB).

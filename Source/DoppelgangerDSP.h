@@ -851,7 +851,7 @@ struct EngineParams
     bool deessOn = true;
     float deess = 0.25f;         // Staerke 0..1
     float deessFreqHz = 5500.0f; // ab hier wirkt der De-Esser
-    bool deessListen = false;    // nur das hoeren, was der De-Esser bearbeitet
+    bool deessListen = false;    // Differenz vor/nach De-Esser: tatsaechlich entfernte Anteile
     float leveler = 0.5f;        // 0..1 -> Regelbereich 0..+-10 dB
     float targetLufs = -23.0f;
     float takeLufs = -100.0f;    // gelernte Lautheit nach dem EQ, -100 = unbekannt (dann keine Grundverstaerkung)
@@ -876,6 +876,7 @@ public:
         kHp = kWeightHighPass (fs);
         for (auto& b : bank[0]) b = Biquad {};
         for (auto& b : bank[1]) b = Biquad {};
+        listenStep = 1.0 / std::max (1.0, std::round (0.01 * fs));
         fadeLen = std::max (1, (int) std::lround (0.03 * fs));
         loudCoef = 1.0 - std::exp (-1.0 / (0.4 * fs));
         envAtt = 1.0 - std::exp (-1.0 / (0.0005 * fs));
@@ -915,6 +916,7 @@ public:
         staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
         gainStatic = std::pow (10.0, staticDb / 20.0);
         gainRide = 1.0;
+        listenMix = params.deessListen ? 1.0 : 0.0;
         ctl = 0;
     }
 
@@ -1037,25 +1039,30 @@ public:
             minDeessGain = std::min (minDeessGain, deessGain);
             if (ctl == 0)
             {
-                const double redDb = 20.0 * std::log10 (deessGain);
-                if (std::abs (redDb - shelfDb) > 0.05)
+                double redDb = 20.0 * std::log10 (deessGain);
+                if (redDb > -0.025) redDb = 0.0; // finish the release at exact unity
+                if (std::abs (redDb - shelfDb) > 0.05 || (redDb == 0.0 && shelfDb != 0.0))
                 {
                     shelfDb = redDb;
                     shelf = highShelf (fs, std::min ((double) params.deessFreqHz * 0.85, 0.42 * fs), shelfDb);
                 }
             }
 
+            listenMix += std::clamp ((params.deessListen ? 1.0 : 0.0) - listenMix, -listenStep, listenStep);
             const double gStatic = gainStatic;
             double kpIn = 0, kpOut = 0;
             for (int c = 0; c < numCh; ++c)
             {
                 auto& ch = chans[(size_t) c];
                 const double d = ch.ds.process (shelf, y[c]);
-                const double v = (params.deessListen ? hi[c] : d) * gStatic;
+                // Listen monitors the actual sample difference, not the detector high-pass.
+                // Both paths use the same gain/leveler, and metering follows the heard output.
+                const double removed = y[c] - d;
+                const double v = (d + listenMix * (removed - d)) * gStatic;
                 // Messung fuer den Leveler: nach der Grundverstaerkung, vor dem Leveler
                 const double k = ch.k2.process (kHp, ch.k1.process (kShelf, d * gStatic));
                 kpIn += k * k;
-                const double o = params.deessListen ? v : v * gainRide;
+                const double o = v * gainRide;
                 const double ko = ch.o2.process (kHp, ch.o1.process (kShelf, o));
                 kpOut += ko * ko;
                 io[c][i] = (float) o;
@@ -1157,6 +1164,7 @@ private:
     double envAtt = 0, envRel = 0, hiPow = 0, fullPow = 0, deessGain = 1, shelfDb = 0;
     double loudCoef = 0, msK = 0, outMs = 0;
     double staticDb = 0, ride1 = 0, ride2 = 0, gainRide = 1;
+    double listenMix = 0, listenStep = 1;
     double gainStatic = 1, staticCoef = 0, rideOffCoef = 0, rideUpCoef = 0, rideDownCoef = 0, rideSmoothCoef = 0;
     int ctl = 0;
 };
