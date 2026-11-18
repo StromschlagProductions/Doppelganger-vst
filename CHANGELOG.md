@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.7 – 18. November 2026
+
+- **RESET unter dem EQ-Schalter:** Setzt alle fünf EQ-Bänder auf ihre Parameter-Standardwerte zurück: 0 dB, Frequenzen 100/300/1000/3000/8000 Hz und Q = 1. Der EQ-Ein-/Aus-Zustand bleibt erhalten. Die DAW wird über die Parameteränderungen benachrichtigt; Regler und Knoten folgen direkt.
+- Die helle und dunkle Oberfläche sind mit Version 1.7 neu aufgenommen. Die übrigen Einstellungen und die Signalverarbeitung bleiben erhalten; neu lernen ist nicht nötig.
+
+[Release-Hinweise](docs/releases/1.7.md)
+
 ## 1.6 – 18. November 2026
 
 - **Klangbild klarer beschriftet:** Legende mit Farbmustern: REFERENZ (grau), EINGANG (gelernt) (blau), KORREKTUR ±12 dB (orange), AUSGANG (live) (grün).
