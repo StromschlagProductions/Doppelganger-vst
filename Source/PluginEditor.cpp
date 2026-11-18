@@ -94,6 +94,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. Umschalt macht Ziehen und Mausrad feiner. "
           "Ziehen schaltet die Feinabstimmung automatisch ein. Die Regler darunter stellen dieselben Werte als Zahl ein.");
     body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe.");
+    body ("RESET unter dem AN/AUS-Schalter setzt alle fünf Bänder auf 0 dB, Standardfrequenzen und Q = 1 zurück. Der EQ bleibt an oder aus wie zuvor.");
 
     head ("LAUTHEIT");
     body ("Mono und Stereo werden kanalrichtig nach BS.1770 gemessen: Die Energien von links und rechts werden addiert. "
@@ -504,6 +505,20 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     fineOnButton.setTooltip (u8 ("EQ an- und ausschalten (Feinabstimmung nach dem Angleich). Aus: der Klang bleibt wie nach dem Angleich."));
     fineOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "fineOn", fineOnButton);
     content.addAndMakeVisible (fineOnButton);
+    fineResetButton.setTooltip (u8 ("Alle fünf EQ-Bänder zurücksetzen: 0 dB, Standardfrequenzen und Q = 1. Der EQ bleibt an oder aus wie bisher."));
+    fineResetButton.onClick = [this]
+    {
+        for (int k = 1; k <= dop::kFineBands; ++k)
+            for (const auto* prefix : { "fineHz", "fineDb", "fineQ" })
+                if (auto* parameter = proc.apvts.getParameter (juce::String (prefix) + juce::String (k)))
+                {
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                    parameter->endChangeGesture();
+                }
+        fineNodes.refresh (proc.getAnalysisSampleRate());
+    };
+    content.addAndMakeVisible (fineResetButton);
     content.addAndMakeVisible (fineNodes);
     intLoudness.onReset = [this] { proc.getEngine().resetIntegrated(); };
     content.addAndMakeVisible (intLoudness);
@@ -1006,6 +1021,7 @@ void DoppelgangerEditor::resized()
 
     // Feinabstimmung unten: Schalter links, fuenf Baender mit Frequenz, Verstaerkung und Guete
     fineOnButton.setBounds (24, 478, 70, 28);
+    fineResetButton.setBounds (24, 514, 70, 28);
     fineNodes.setBounds (22, 182, w - 44, 108);
     intLoudness.setBounds (580, 314, 80, 18);
     for (int k = 0; k < dop::kFineBands; ++k)

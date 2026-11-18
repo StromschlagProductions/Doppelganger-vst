@@ -141,7 +141,7 @@ private:
         std::unique_ptr<APVTS::SliderAttachment> aFreq, aGain, aQ;
     };
     std::array<FineBand, (size_t) dop::kFineBands> fineBands;
-    juce::TextButton fineOnButton;
+    juce::TextButton fineOnButton, fineResetButton { "RESET" };
     std::unique_ptr<APVTS::ButtonAttachment> fineOnAtt;
     FineNodes fineNodes { proc.apvts };
     IntegratedLoudness intLoudness;
