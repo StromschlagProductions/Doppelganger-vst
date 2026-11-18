@@ -106,7 +106,7 @@ public:
 
 private:
     using APVTS = juce::AudioProcessorValueTreeState;
-    struct Theme { juce::Colour bg, panel, accent, text, dim, line, display, take; bool dark; };
+    struct Theme { juce::Colour bg, panel, accent, text, dim, line, display, take, out; bool dark; };
 
     void timerCallback() override;
     void applyTheme();
@@ -155,7 +155,7 @@ private:
     juce::TooltipWindow tooltipWindow { this, 400 };
 
     // Live-Spektrum (geglaettet fuer die Anzeige)
-    dop::GridCurve liveIn {}, liveOut {};
+    dop::GridCurve liveOut {};
     float liveAlpha = 0.0f;
     static constexpr int kDeessHist = 90;           // ca. 3,6 s bei 25 Bildern/s
     std::array<float, (size_t) kDeessHist> deessHist {};

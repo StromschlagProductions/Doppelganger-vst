@@ -20,13 +20,13 @@ DoppelgangerEditor::Theme DoppelgangerEditor::darkTheme()
 {
     return { juce::Colour (0xff182326), juce::Colour (0xff233539), juce::Colour (0xfff5781a),
              juce::Colour (0xffe8ecec), juce::Colour (0xff8fa1a5), juce::Colour (0xff35494e),
-             juce::Colour (0xff121b1d), juce::Colour (0xff8fc8f0), true };
+             juce::Colour (0xff121b1d), juce::Colour (0xff8fc8f0), juce::Colour (0xff7fd49a), true };
 }
 DoppelgangerEditor::Theme DoppelgangerEditor::lightTheme()
 {
     return { juce::Colour (0xffd5dbda), juce::Colour (0xffe8eae9), juce::Colour (0xfff5781a),
              juce::Colour (0xff233539), juce::Colour (0xff5d6e72), juce::Colour (0xffb5bfbe),
-             juce::Colour (0xfff4f6f5), juce::Colour (0xff2c6e9e), false };
+             juce::Colour (0xfff4f6f5), juce::Colour (0xff2c6e9e), juce::Colour (0xff2f8a4c), false };
 }
 
 static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent, juce::Colour dim)
@@ -55,7 +55,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     note ("Gedacht für Dialog in Hörspielen, Hörbüchern und Podcasts. Nicht für Gesang, Effektstimmen oder als Rauschunterdrückung: "
           "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
-    head ("STIMME LERNEN");
+    head ("EINGANG LERNEN");
     body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Es prüft selbst, ob das Klangbild "
           "sich nicht mehr verändert, und hört dann von allein auf (frühestens nach 10 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
           "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
@@ -74,7 +74,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Den rechten Begrenzer zum Beispiel auf 8 bis 10 kHz ziehen, wenn die Luft einer Stimme erhalten bleiben soll, den linken auf 100 bis 150 Hz, wenn "
           "der Nahbesprechungs-Bass eines Sprechers nicht angefasst werden soll.");
     body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz.");
-    note ("Im Bild: grau die Referenz, blau die gelernte Stimme, orange die Korrektur (±12 dB über die Bildhöhe), hell mit Punkten 1 bis 5 die Feinabstimmung, abgedunkelt der Bereich außerhalb der Begrenzer. Dazu läuft live das Spektrum: die helle Fläche ist der Ausgang, die dünne Linie der Eingang. Beide sind auf gleiche mittlere Höhe gebracht, man sieht also die Klangform. Je näher die Fläche an der grauen Referenz liegt, desto besser passt die Spur.");
+    note ("Im Bild: grau die Referenz (das Ziel), blau der Eingang (die gelernte Klangform der Spur), orange die Korrektur (±12 dB über die Bildhöhe, die Mitte ist 0 dB). Grün läuft der Ausgang live mit: das, was tatsächlich herauskommt. Oben rechts zeigt EQ, ob die Feinabstimmung eingeschaltet ist; dann ist ihr Verlauf die helle Linie mit den Punkten 1 bis 5. Abgedunkelt ist der Bereich außerhalb der Begrenzer. Je näher der Ausgang an der grauen Referenz liegt, desto besser passt die Spur.");
 
     head ("DE-ESSER");
     body ("AN / AUS schaltet den De-Esser gezielt ab, zum Vergleich. Stärke: wie weit Zischlaute abgesenkt werden, bei 25 % etwa 3 bis 4 dB, "
@@ -88,7 +88,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Listen: spielt nur die tatsächlich entfernten Anteile ab (Differenz vor/nach der De-Esser-Absenkung). So hörst du, welche S-Laute und Stimmanteile abgezogen werden. Ohne Absenkung hörst du nichts. Danach wieder ausschalten.");
     note ("Klingen die S-Laute eines Takes ohnehin schwach oder lispelnd, den De-Esser ausschalten.");
 
-    head ("FEINABSTIMMUNG");
+    head ("EQ (FEINABSTIMMUNG)");
     body ("Optional: fünf frei einstellbare Glockenfilter nach dem Angleich. Damit lässt sich die Spur direkt im Plugin nachschärfen, ohne zusätzlichen EQ in der Slotkette. "
           "Standard: alle Bänder 0 dB, Feinabstimmung aus, der Klang bleibt dann unverändert.");
     body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. Umschalt macht Ziehen und Mausrad feiner. "
@@ -501,7 +501,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     content.addAndMakeVisible (deessListenButton);
 
     fineOnButton.setClickingTogglesState (true);
-    fineOnButton.setTooltip (u8 ("Feinabstimmung an- und ausschalten. Aus: der Klang bleibt wie nach dem Angleich."));
+    fineOnButton.setTooltip (u8 ("EQ an- und ausschalten (Feinabstimmung nach dem Angleich). Aus: der Klang bleibt wie nach dem Angleich."));
     fineOnAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "fineOn", fineOnButton);
     content.addAndMakeVisible (fineOnButton);
     content.addAndMakeVisible (fineNodes);
@@ -655,11 +655,8 @@ void DoppelgangerEditor::timerCallback()
     if (fresh)
     {
         const float a = liveHasData ? 0.35f : 1.0f;
-        for (size_t i = 0; i < li.size(); ++i)
-        {
-            liveIn[i] += a * (li[i] - liveIn[i]);
+        for (size_t i = 0; i < lo.size(); ++i)
             liveOut[i] += a * (lo[i] - liveOut[i]);
-        }
         liveHasData = true;
         liveAlpha = std::min (1.0f, liveAlpha + 0.25f);
     }
@@ -796,8 +793,8 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
         g.drawText (title, (int) x + 12, (int) y + 4, (int) w - 24, 18, juce::Justification::centredLeft);
     };
 
-    // Karte: Stimme lernen
-    card (12.0f, 76.0f, (float) W - 24.0f, 72.0f, "STIMME");
+    // Karte: Eingang lernen
+    card (12.0f, 76.0f, (float) W - 24.0f, 72.0f, "EINGANG");
     g.setColour (theme.dim);
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.drawText ("STIMMLAGE", W - 166, 80, 140, 16, juce::Justification::centredLeft);
@@ -817,20 +814,45 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     // Karte: Klangbild
     card (12.0f, 158.0f, (float) W - 24.0f, 142.0f, "KLANGBILD");
     {
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        const int lx = W - 330;
-        g.setColour (theme.dim);
-        g.drawText ("REFERENZ", lx, 162, 70, 16, juce::Justification::centredLeft);
-        g.setColour (theme.take);
-        g.drawText ("STIMME", lx + 76, 162, 60, 16, juce::Justification::centredLeft);
-        g.setColour (theme.accent);
-        g.drawText (u8 ("KORREKTUR ±12 dB"), lx + 140, 162, 160, 16, juce::Justification::centredLeft);
-        g.setColour (theme.text.withAlpha (0.55f));
-        g.drawText ("LIVE:  EINGANG", 112, 162, 100, 16, juce::Justification::centredLeft);
-        g.setColour (theme.text);
-        g.drawText ("AUSGANG", 214, 162, 70, 16, juce::Justification::centredLeft);
-        if (fineOnButton.getToggleState())
-            g.drawText ("FEIN", lx - 46, 162, 40, 16, juce::Justification::centredLeft);
+        // Legende: links jeweils eine Probe (Linie oder Flaeche), dahinter der Name in derselben Farbe
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        const float rowY = 162.0f, rowH = 16.0f;
+        float x = 112.0f;
+        auto legendItem = [&] (const juce::String& text, juce::Colour c, bool areaSwatch)
+        {
+            if (areaSwatch)
+            {
+                g.setColour (c.withAlpha (0.20f));
+                g.fillRect (juce::Rectangle<float> (x, rowY + 4.0f, 12.0f, 8.0f));
+                g.setColour (c);
+                g.fillRect (juce::Rectangle<float> (x, rowY + 4.0f, 12.0f, 1.5f));
+            }
+            else
+            {
+                g.setColour (c);
+                g.fillRect (juce::Rectangle<float> (x, rowY + 7.0f, 12.0f, 2.0f));
+            }
+            x += 16.0f;
+            const float tw = g.getCurrentFont().getStringWidthFloat (text);
+            g.setColour (c);
+            g.drawText (text, juce::Rectangle<float> (x, rowY, tw + 2.0f, rowH), juce::Justification::centredLeft, false);
+            x += tw + 14.0f;
+        };
+        legendItem ("REFERENZ", theme.dim, false);
+        legendItem ("EINGANG (gelernt)", theme.take, false);
+        legendItem (u8 ("KORREKTUR ±12 dB"), theme.accent, false);
+        legendItem ("AUSGANG (live)", theme.out, true);
+
+        // EQ-Anzeige ganz rechts: orange, wenn der EQ eingeschaltet ist, sonst dezent grau
+        const bool eqOn = fineOnButton.getToggleState();
+        const juce::Colour eqCol = eqOn ? theme.accent : theme.dim;
+        const juce::Rectangle<float> pill (598.0f, rowY, 52.0f, rowH);
+        g.setColour (eqCol.withAlpha (eqOn ? 0.22f : 0.08f));
+        g.fillRoundedRectangle (pill, 4.0f);
+        g.setColour (eqCol.withAlpha (eqOn ? 1.0f : 0.45f));
+        g.drawRoundedRectangle (pill, 4.0f, 1.0f);
+        g.setColour (eqCol);
+        g.drawText (eqOn ? "EQ AN" : "EQ AUS", pill.toNearestInt(), juce::Justification::centred, false);
     }
     const auto r = juce::Rectangle<float> (22.0f, 182.0f, (float) W - 44.0f, 108.0f);
     g.setColour (theme.display);
@@ -865,22 +887,22 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
         g.reduceClipRegion (r.toNearestInt());
         if (liveHasData && liveAlpha > 0.01f)
         {
-            // Ausgang als Flaeche, Eingang als duenne Linie (Klangform, mittlere Hoehe gleich)
+            // Ausgang: das Live-Spektrum nach dem Plugin, als Linie mit leichter Flaeche darunter
             juce::Path area, line;
             auto yv = [&] (float v) { return juce::jlimit (r.getY() + 2.0f, r.getBottom() - 2.0f, r.getCentreY() - (v - -6.0f) / 34.0f * (r.getHeight() * 0.5f - 4.0f)); };
             area.startNewSubPath (xOf (dop::kRefGridHz[0]), r.getBottom());
             for (int i = 0; i < dop::kRefGridPoints; ++i)
             {
-                area.lineTo (xOf (dop::kRefGridHz[i]), yv (liveOut[(size_t) i]));
-                const juce::Point<float> pt (xOf (dop::kRefGridHz[i]), yv (liveIn[(size_t) i]));
-                if (i == 0) line.startNewSubPath (pt); else line.lineTo (pt);
+                const float px = xOf (dop::kRefGridHz[i]), py = yv (liveOut[(size_t) i]);
+                area.lineTo (px, py);
+                if (i == 0) line.startNewSubPath (px, py); else line.lineTo (px, py);
             }
             area.lineTo (xOf (dop::kRefGridHz[dop::kRefGridPoints - 1]), r.getBottom());
             area.closeSubPath();
-            g.setColour (theme.text.withAlpha (0.16f * liveAlpha));
+            g.setColour (theme.out.withAlpha (0.14f * liveAlpha));
             g.fillPath (area);
-            g.setColour (theme.text.withAlpha (0.55f * liveAlpha));
-            g.strokePath (line, juce::PathStrokeType (1.0f));
+            g.setColour (theme.out.withAlpha (0.9f * liveAlpha));
+            g.strokePath (line, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
         drawCurve (dop::referenceCurve (shown.effectiveRegister), -6.0f, 34.0f, theme.dim, 1.4f);
         if (shown.profile.valid)
@@ -904,7 +926,7 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     card (12.0f, 310.0f, 172.0f, 128.0f, "KLANG");
     card (194.0f, 310.0f, 292.0f, 128.0f, "DE-ESSER");
     card (496.0f, 310.0f, 172.0f, 128.0f, "LAUTHEIT");
-    card (12.0f, 450.0f, (float) W - 24.0f, 108.0f, "FEINABSTIMMUNG");
+    card (12.0f, 450.0f, (float) W - 24.0f, 108.0f, "EQ");
 
     // De-Esser-Anzeige: Balken (aktuelle Absenkung, haengt von oben) + Verlauf der letzten Sekunden
     {

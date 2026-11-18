@@ -1,5 +1,21 @@
 # Änderungen
 
+## 1.6 – 18. November 2026
+
+- **Klangbild klarer beschriftet:** Legende mit Farbmustern: REFERENZ (grau), EINGANG (gelernt) (blau), KORREKTUR ±12 dB (orange), AUSGANG (live) (grün).
+- **Live-Eingang entfernt:** Die zappelnde Eingangslinie entfällt; die Korrektur richtet sich ohnehin nur nach dem Gelernten. Der Ausgang ist dafür deutlich sichtbar.
+- **EQ statt Feinabstimmung:** Die untere Karte heißt EQ, oben rechts im Klangbild zeigt EQ AN (orange) oder EQ AUS (grau) den Zustand.
+- Die Karte zum Lernen heißt EINGANG statt STIMME. Hilfe und README sind angepasst.
+- Klang, Parameter und gespeicherte Projekte unverändert gegenüber 1.5.
+
+[Release-Hinweise](docs/releases/1.6.md)
+
+## 1.5 – 17. November 2026
+
+- Einfache öffentliche Versionsnummern: Plugin-Anzeige, VST3-Metadaten, Release-Tag und ZIP-Name verwenden dieselbe Nummer. Klang und Funktionen wie 1.4.1.
+
+[Release-Hinweise](docs/releases/1.5.md)
+
 ## 1.4.1 – 17. November 2026
 
 - Lautheitsanzeige und Leveler summieren die unabhängig K-gewichteten Kanalenergien nach BS.1770. Der bisherige Stereo-Mittelwert unterschätzte die Lautheit bei gleichem L/R-Signal um rund 3,01 LU.

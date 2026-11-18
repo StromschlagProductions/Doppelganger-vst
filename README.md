@@ -14,9 +14,9 @@ aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbea
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Aktuelle Version: 1.5.** Mono und Stereo werden kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
+**Aktuelle Version: 1.6.** Das Klangbild ist klarer beschriftet: Referenz, gelernter Eingang, Korrektur und Ausgang live haben je ein Farbmuster, der EQ zeigt seinen Zustand. Seit 1.4.1 werden Mono und Stereo kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
 
-[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.2.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
+[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/1.6.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
 ## Warum es dieses Plugin gibt
 
@@ -54,7 +54,7 @@ Frequenzbereich überhaupt angeglichen wird, legen zwei Begrenzer im Klangbild f
 Am Ende steht die Spur auf der Ziel-Lautheit (Standard −23 LUFS), sanft geglättet und ohne harte S-Laute. Alles
 arbeitet latenzfrei und ab dem ersten Sample, egal wo die Wiedergabe startet.
 
-**Die Feinabstimmung.** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
+**Die Feinabstimmung (im Plugin: EQ).** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
 Bänder zu, direkt im Klangbild oder über die Regler. Ein zusätzlicher EQ in der Slotkette ist dafür nicht nötig.
 Die Feinabstimmung ist auf Sauberkeit geprüft: Ausgeschaltet oder mit allen Bändern auf 0 dB läuft das Signal bitgenau unverändert durch, +6 dB am Regler ergeben auch +6 dB im Klang, und Änderungen werden weich überblendet, damit beim Automatisieren nichts knackt. Kein Band kann über die halbe Abtastrate hinaus (die sogenannte Nyquist-Grenze) gestellt werden: Die Frequenz ist auf 45 % der Abtastrate begrenzt. So bleiben alle Filter auch in Projekten mit niedriger Abtastrate stabil, von 22,05 bis 192 kHz geprüft.
 
@@ -71,10 +71,10 @@ trockene Aufnahmen bleiben die Voraussetzung. Dereverb und Denoise gehören vor 
   </tr>
 </table>
 
-Beide Bilder zeigen eine gelernte Stimme mit Live-Klangbild und eingeschalteter Feinabstimmung.
+Beide Bilder zeigen eine gelernte Stimme mit Live-Ausgang und eingeschaltetem EQ.
 
-Oben steht die erkannte Stimme, darunter das Klangbild mit Referenz (grau), gelernter Stimme (blau), Korrektur (orange)
-und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten die optionale Feinabstimmung. Die **?**-Taste öffnet die Hilfe.
+Oben in der Karte EINGANG wird die Spur gelernt und die erkannte Stimmlage angezeigt. Darunter das Klangbild mit Referenz (grau),
+gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darunter sind Klang, De-Esser und Lautheit, ganz unten der optionale EQ. Die **?**-Taste öffnet die Hilfe.
 
 ## Bedienung
 
@@ -99,8 +99,8 @@ und dem Live-Spektrum. Darunter sind Klang, De-Esser und Lautheit, ganz unten di
 | Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
 | Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
 | Lautheit | **Messwert** | Oben rechts in der Karte: gemessene Lautheit des Ausgangs, integriert nach EBU R128 (Pausen ausgeblendet), wie ein Loudness-Meter am Ende einer Passage. Beginnt bei jedem Wiedergabestart neu, Klick = zurücksetzen. Orange = innerhalb ±1 LU um das Ziel. |
-| Feinabstimmung | **AN / AUS** | Schaltet die fünf Bänder nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. |
-| Feinabstimmung | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
+| EQ | **AN / AUS** | Schaltet die fünf Bänder der Feinabstimmung nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. Oben rechts im Klangbild zeigt **EQ AN** (orange) oder **EQ AUS** (grau) den Zustand. |
+| EQ | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
 
 Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
 ersten Sample, egal an welcher Stelle die Wiedergabe startet. DOPPELGANGER ist **latenzfrei** und hat bewusst keinen
@@ -108,7 +108,15 @@ Limiter; Spitzen fängt der Limiter auf dem Master ab.
 
 Die Grundverstärkung rechnet die Feinabstimmung mit ein: Hebt man Bänder an, bleibt die Spur trotzdem auf dem Ziel, nur die Klangfarbe ändert sich.
 
-**Klangbild:** grau die Referenz, blau die gelernte Stimme, orange die Korrektur, hell mit Punkten 1 bis 5 die Feinabstimmung, abgedunkelt der Bereich außerhalb der Angleich-Begrenzer. Oben steht **MOMENTAN** (Lautheit der letzten 0,4 s, springt mit der Sprache), dazu Grundverstärkung, Leveler und De-Esser. Dazu läuft live das Spektrum: helle Fläche = Ausgang, dünne Linie = Eingang (beide auf gleiche mittlere Höhe gebracht, es zählt die Klangform).
+**Klangbild:** Die Legende über der Anzeige zeigt zu jedem Namen ein Farbmuster.
+
+- **REFERENZ** (grau): das Ziel, die gewählte neutrale Referenzstimme.
+- **EINGANG (gelernt)** (blau): die beim Lernen gemessene Klangform der Spur. Sie steht fest, denn die Korrektur richtet sich nur nach ihr, nicht nach dem Moment.
+- **KORREKTUR ±12 dB** (orange): was der Angleich anhebt oder absenkt; die Mittellinie ist 0 dB.
+- **AUSGANG (live)** (grün): das Spektrum dessen, was tatsächlich herauskommt, laufend gemessen. Auf gleiche mittlere Höhe wie die Referenz gebracht, es zählt die Klangform: je näher an der grauen Kurve, desto besser passt die Spur.
+- **EQ AN / AUS**: ob die Feinabstimmung eingeschaltet ist. Dann zeigt die helle Linie mit den Punkten 1 bis 5 ihren Verlauf.
+
+Abgedunkelt ist der Bereich außerhalb der Angleich-Begrenzer. Oben steht **MOMENTAN** (Lautheit der letzten 0,4 s, springt mit der Sprache), dazu Grundverstärkung, Leveler und De-Esser.
 
 Oberfläche: Look Dunkel/Hell, Fenster frei skalierbar (50–300 %, Start bei 150 %), Hilfe über den **?**-Knopf,
 Tooltips an allen Reglern.
