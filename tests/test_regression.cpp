@@ -570,22 +570,47 @@ void autopilotTests()
                     if (! full && ! ((leveler == .5f && deess == .25f) || (leveler == 1.f && deess == 1.f && target == -16.f))) continue;
                     dop::EngineParams p; p.leveler = leveler; p.deess = deess; p.deessOn = deess > 0; p.targetLufs = target;
                     p.rideOffsetDb = prof.typicalOffsetDb;
-                    const auto c = dop::autopilot::calibrate (audio, fs, p, bank, eqd);
+                    const auto c = dop::autopilot::calibrate (audio, fs, p, bank, eqd, 80.0f);
                     if (std::getenv ("DOP_VERBOSE")) std::printf ("Nachmessung fs %.0f lev %.2f de %.2f Ziel %.0f: %+.2f dB -> %.2f LUFS, Spitze %.1f\n", fs, leveler, deess, target, c.calibDb, c.outLufs, c.peakDb);
                     CHECK (c.ok && std::abs (c.outLufs - target) <= 0.05f);
                     CHECK (std::abs (c.calibDb) <= dop::Engine::kMaxCalibDb && std::isfinite (c.peakDb) && c.peakDb > -60);
                     CHECK (c.peakDb <= dop::Engine::kPeakCeilingDb + 0.01f && c.guardDb >= 0);   // Spitzenschutz haelt die Grenze
+                    CHECK (c.truePeakDb >= c.peakDb - 0.01f && c.truePeakDb < c.peakDb + 3.0f);   // True Peak gemessen
                     // unabhaengige Gegenprobe: dieselbe Kette mit calibDb, frisch gemessen
-                    dop::Engine e; e.prepare (fs); auto q = p; q.lowcutHz = 20; q.takeLufs = dop::autopilot::integratedLoudness (audio, fs) + eqd; q.calibDb = c.calibDb; q.peakGuard = true;
+                    dop::Engine e; e.prepare (fs); auto q = p; q.takeLufs = dop::autopilot::integratedLoudness (audio, fs, 80.0f) + eqd; q.calibDb = c.calibDb; q.peakGuard = true;
                     e.setParams (q); e.setBank (bank); e.reset();
                     auto y = audio; for (size_t o = 0; o < y.size(); o += 300) { float* pp[] = { y.data() + o }; e.process (pp, 1, (int) std::min<size_t> (300, y.size() - o), nullptr); }
                     CHECK (std::abs (dop::autopilot::integratedLoudness (y, fs) - target) <= 0.12f);
                 }
+        // Lowcut nach dem Lernen geaendert: Der ungefilterte Mitschnitt wird mit dem neuen Lowcut gerechnet, die
+        // Vorausberechnung bezieht sich weiter auf den Lowcut beim Lernen (wie im Prozessor). Ausgang trifft das Ziel.
+        for (float newLowcut : { 20.0f, 60.0f, 150.0f, 200.0f })
+        {
+            dop::EngineParams p; p.lowcutHz = newLowcut; p.rideOffsetDb = prof.typicalOffsetDb;
+            const auto c = dop::autopilot::calibrate (audio, fs, p, bank, eqd, 80.0f);
+            dop::Engine e; e.prepare (fs); auto q = p; q.takeLufs = dop::autopilot::integratedLoudness (audio, fs, 80.0f) + eqd;
+            q.calibDb = c.calibDb; q.peakGuard = true;
+            e.setParams (q); e.setBank (bank); e.reset();
+            auto y = audio; for (size_t o = 0; o < y.size(); o += 300) { float* pp[] = { y.data() + o }; e.process (pp, 1, (int) std::min<size_t> (300, y.size() - o), nullptr); }
+            const float measured = dop::autopilot::integratedLoudness (y, fs);
+            if (std::getenv ("DOP_VERBOSE")) std::printf ("Lowcut %.0f Hz: Nachmessung %.2f, tatsaechlich %.2f LUFS (%+.2f dB)\n", newLowcut, c.outLufs, measured, c.calibDb);
+            CHECK (c.ok && std::abs (c.outLufs + 23.0f) <= 0.05f && std::abs (measured + 23.0f) <= 0.12f);
+        }
         // Abbruch und zu wenig Material
         std::atomic<bool> stop { true };
-        CHECK (! dop::autopilot::calibrate (audio, fs, dop::EngineParams {}, bank, eqd, &stop).ok);
-        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) fs, 0.1f), fs, dop::EngineParams {}, bank, eqd).ok);
-        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) (5 * fs), 0.0f), fs, dop::EngineParams {}, bank, eqd).ok);
+        CHECK (! dop::autopilot::calibrate (audio, fs, dop::EngineParams {}, bank, eqd, 80.0f, &stop).ok);
+        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) fs, 0.1f), fs, dop::EngineParams {}, bank, eqd, 80.0f).ok);
+        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) (5 * fs), 0.0f), fs, dop::EngineParams {}, bank, eqd, 80.0f).ok);
+    }
+
+    // True Peak: Sinus bei fs/4 mit 45 Grad Phase hat Sample-Spitzen bei 0,707, die echte Spitze liegt bei 1,0
+    {
+        std::vector<float> x (48000);
+        for (size_t i = 0; i < x.size(); ++i) x[i] = (float) std::sin (dop::kPi * 0.5 * (double) i + dop::kPi * 0.25);
+        float sp = 0; for (float v : x) sp = std::max (sp, std::abs (v));
+        CHECK (std::abs (20 * std::log10 (sp) + 3.01f) < 0.05f);
+        CHECK (std::abs (dop::autopilot::truePeakDb (x)) < 0.3f);
+        CHECK (dop::autopilot::truePeakDb (std::vector<float> (100, 0.0f)) < -200.0f);
     }
 }
 

@@ -66,13 +66,15 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Nach dem Lernen stellt es die Angleichung so ein, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum übrig bleibt: kaum gefärbte Takes werden nur leicht "
           "angefasst (45 %), stark gefärbte deutlicher, aber nie ganz auf die Referenz gezogen (höchstens 85 %). Den Lowcut setzt es nach der Tonhöhe (80 bis 110 Hz).");
     body ("Danach rechnet es die gelernte Passage im Hintergrund einmal durch die ganze Kette und misst die Lautheit am Ausgang nach. Was De-Esser, Leveler und EQ "
-          "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Nach jeder Regleränderung misst es neu. Ein latenzfreier Spitzenschutz hält den Ausgang unter −1 dBFS "
-          "und greift nur ein, wenn eine Spitze die Grenze wirklich überschreitet.");
+          "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Nach jeder Regleränderung, auch am Lowcut, misst es neu. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen "
+          "unter −1 dBFS und greift nur ein, wenn eine Spitze die Grenze wirklich überschreitet. Zwischen den Samples (True Peak) kann es knapp darüber liegen; "
+          "der gemessene True Peak steht im Tooltip von AUTO.");
     body ("Die Zeile unter der Tonhöhe zeigt das Ergebnis: grün „geprüft“ mit der nachgemessenen Lautheit, orange ein Hinweis, wenn die Aufnahme etwas hat, "
           "das kein Regler reparieren kann: übersteuert (verzerrt), hörbares Rauschen in den Pausen, sehr laute Spitzen oder ein unerreichbares Ziel. "
           "Mit der Maus über AUTO stehen alle Messwerte.");
     note ("Regler bleiben jederzeit bedienbar, der Autopilot setzt sie nur einmal nach dem Lernen. AUTO aus: alles wie bis Version 1.7. "
-          "Nach dem Öffnen eines Projekts gilt die gespeicherte Nachmessung; für eine neue Prüfung nach Regleränderungen einmal neu lernen.");
+          "Nach dem Öffnen eines Projekts gilt die gespeicherte Nachmessung, aber nur für genau die Einstellungen, mit denen sie gemessen wurde. "
+          "Wurde danach etwas verändert, steht dort „Lautheit geschätzt“; für eine neue Prüfung einmal neu lernen.");
 
     head ("STIMMLAGE");
     body ("Auto wählt die Referenz nach der gelernten Tonhöhe: unter 160 Hz Tief (Mann), bis 225 Hz Mittel (Frau), darüber Hoch (Frau). "
@@ -666,6 +668,7 @@ void DoppelgangerEditor::updateAutopilotReport()
     if (i.calibration.ok)
         tip.add (u8 ("Lautheit nachgemessen: ") + db1 (i.calibration.outLufs) + u8 (" LUFS (Nachkorrektur ")
                  + (i.calibration.calibDb >= 0 ? "+" : "") + db1 (i.calibration.calibDb) + u8 (" dB), Spitzen ") + db1 (i.calibration.peakDb) + " dBFS"
+                 + (i.calibration.truePeakDb > -99.0f ? u8 (" (True Peak ") + db1 (i.calibration.truePeakDb) + " dBTP)" : juce::String())
                  + (i.calibration.guardDb > 0.05f ? u8 (", Spitzenschutz bis ") + db1 (i.calibration.guardDb) + " dB." : u8 (", Spitzenschutz nicht nötig.")));
     tip.add (i.profile.noiseSnrDb >= 0.0f ? u8 ("Rauschabstand: ") + juce::String (juce::roundToInt (i.profile.noiseSnrDb)) + " dB."
                                           : u8 ("Rauschabstand: keine Pausen zum Messen."));
