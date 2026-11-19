@@ -16,6 +16,7 @@
 #include <complex>
 #include <cstring>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -224,6 +225,9 @@ struct LearnedProfile
     float loudnessLufs = -100.0f;   // integrierte Lautheit der Spur (nach Lowcut), -100 = unbekannt
     int loudnessChannels = 1;      // measured channel count; old profiles used a mono-equivalent value
     float typicalOffsetDb = -2.5f;  // typischer Sprechpegel (Mittel der 400-ms-Bloecke in dB) minus integrierte Lautheit
+    // Autopilot-Pruefung der Aufnahme (nur Hinweise, beeinflussen den Klang nicht)
+    float noiseSnrDb = -1.0f;       // Abstand Sprache zu Grundrauschen in dB, -1 = nicht beurteilbar (keine Pausen)
+    int clippedSamples = 0;         // uebersteuerte Samples am Eingang (|x| >= 0,999) waehrend des Lernens
     bool valid = false;
 };
 
@@ -236,7 +240,9 @@ inline bool isValidProfile (const LearnedProfile& p)
         && std::isfinite (p.pitchHz) && p.pitchHz >= 0 && p.pitchHz <= 2000
         && std::isfinite (p.speechSeconds) && p.speechSeconds >= 0
         && std::isfinite (p.loudnessLufs) && p.loudnessLufs >= -100 && p.loudnessLufs <= 24
-        && std::isfinite (p.typicalOffsetDb) && p.typicalOffsetDb >= -8 && p.typicalOffsetDb <= 0;
+        && std::isfinite (p.typicalOffsetDb) && p.typicalOffsetDb >= -8 && p.typicalOffsetDb <= 0
+        && std::isfinite (p.noiseSnrDb) && p.noiseSnrDb >= -1 && p.noiseSnrDb <= 200
+        && p.clippedSamples >= 0;
 }
 
 //==============================================================================
@@ -247,8 +253,12 @@ class Learner
 {
 public:
     static constexpr int kBuckets = 100;            // 1-dB-Stufen von -100 bis 0 dBFS
-    static constexpr float kFloorDb = -70.0f;       // leiser = Stille, wird ignoriert
-    static constexpr float kSpeechDb = -55.0f;      // ab hier zaehlt ein Frame fuer die Fortschrittsanzeige
+    // Leise, saubere Aufnahmen (z. B. 32-Bit-Float mit wenig Vorverstaerkung) muessen genauso lernbar sein.
+    // Die Auswahl im Ergebnis ist ohnehin relativ zum lautesten Frame (40 dB darunter).
+    static constexpr float kFloorDb = -100.0f;      // leiser = digitale Stille, wird ignoriert
+    static constexpr float kSpeechDb = -55.0f;      // ab hier zaehlt ein Frame fuer die Fortschrittsanzeige ...
+    static constexpr float kSpeechBelowPeakDb = 40.0f;   // ... bei leisen Aufnahmen: bis 40 dB unter dem lautesten Frame
+    static constexpr float kSpeechMinDb = -90.0f;
 
     void prepare (double sampleRate)
     {
@@ -311,21 +321,38 @@ public:
         std::fill (pBuf.begin(), pBuf.end(), 0.0);
         filled = 0; sinceHop = 0; pFilled = 0; pSinceHop = 0;
         speechFrames = 0;
+        peakFrameDb = -200.0;
         pitches.clear();
         for (auto* s : { &s1, &s2, &s3, &s4, &k1, &k2 }) s->reset();
         subAcc = 0.0; subN = 0; subCount = 0; sub.fill (0.0);
         blocks.clear();
         loudnessChannels = 1;
+        levelHist.fill (0);
+        clipped = 0;
+        audio.clear();
     }
+
+    // Autopilot: die gelernten Sekunden (Mono nach dem Lowcut) mitschreiben, damit der Prozessor die ganze Kette
+    // anschliessend damit durchrechnen und die Lautheit exakt nachmessen kann. Nur Message-Thread.
+    void beginCapture (double seconds)
+    {
+        audio.clear();
+        audioCap = (size_t) std::clamp (seconds * fs, 0.0, (double) kMaxCaptureSamples);
+        audio.reserve (audioCap);
+    }
+    std::vector<float> takeCapturedAudio() { auto out = std::move (audio); audio = {}; audioCap = 0; return out; }
+    static constexpr size_t kMaxCaptureSamples = 2400000;   // 50 s bei 48 kHz, 12,5 s bei 192 kHz
 
     // Mono spectral/pitch tap, with optional summed per-channel K-weighted power.
     // Loudness must not use the squared stereo downmix: that loses side-channel energy.
-    void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1)
+    void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1, int clippedInBlock = 0)
     {
         loudnessChannels = channelPower ? std::clamp (channels, 1, 2) : 1;
+        clipped += std::max (0, clippedInBlock);
         for (int i = 0; i < n; ++i)
         {
             const double v = std::isfinite (x[i]) ? x[i] : 0.0;
+            if (audio.size() < audioCap) audio.push_back ((float) v);
             // Spektrum
             buf[(size_t) (filled % frameLen)] = v;
             ++filled;
@@ -409,8 +436,29 @@ public:
             }
             if (nb > 0) p.typicalOffsetDb = (float) std::clamp (sdb / nb - p.loudnessLufs, -8.0, 0.0);
         }
+        p.noiseSnrDb = noiseSnrDb();
+        p.clippedSamples = (int) std::min<int64_t> (clipped, 1000000000);
         p.valid = true;
         return p;
+    }
+
+    // Rauschabstand: lautes Sprechen (90. Perzentil der Frames) gegen das leiseste Zehntel (Pausen = Grundrauschen).
+    // Digitale Stille zaehlt nicht. Ohne erkennbare Pausen (Abstand unter 15 dB) laesst sich nichts sagen: -1.
+    float noiseSnrDb() const
+    {
+        int64_t total = 0;
+        for (auto c : levelHist) total += c;
+        if (total < 20) return -1.0f;
+        auto percentile = [&] (double q)
+        {
+            const int64_t want = (int64_t) std::ceil (q * (double) total);
+            int64_t acc = 0;
+            for (size_t b = 0; b < levelHist.size(); ++b)
+                if ((acc += levelHist[b]) >= want) return (double) b - (double) kHistOffsetDb + 0.5;
+            return 0.0;
+        };
+        const double snr = percentile (0.90) - percentile (0.10);
+        return snr < 15.0 ? -1.0f : (float) snr;
     }
 
     // Glaettung ueber 1/6 Oktave, an den Gitterpunkten ausgewertet, normiert und begrenzt (identisch zum Generator)
@@ -464,8 +512,12 @@ private:
             work[(size_t) i] = v * window[(size_t) i];
         }
         const double frameDb = 10.0 * std::log10 (ms / frameLen + 1e-20);
+        if (frameDb > -140.0)   // digitale Stille (geschnittene Pausen) sagt nichts ueber das Rauschen
+            ++levelHist[(size_t) std::clamp ((int) std::floor (frameDb) + kHistOffsetDb, 0, (int) levelHist.size() - 1)];
         if (frameDb < kFloorDb) return;
-        if (frameDb > kSpeechDb) ++speechFrames;
+        peakFrameDb = std::max (peakFrameDb, frameDb);
+        const double speechDb = std::max ((double) kSpeechMinDb, std::min ((double) kSpeechDb, peakFrameDb - kSpeechBelowPeakDb));
+        if (frameDb > speechDb) ++speechFrames;
         const int b = std::clamp ((int) std::floor (frameDb + 100.0), 0, kBuckets - 1);
         fft.forward (work);
         double* dst = &bucketPower[(size_t) b * (size_t) nBins];
@@ -483,7 +535,7 @@ private:
             pWork[(size_t) i] = v;
             energy += v * v;
         }
-        if (energy < 1e-7) return;
+        if (energy < 1e-14) return;   // nur echte Stille; leise Frames sortiert finish() relativ zum lautesten aus
         pFft.forward (pWork);
         for (auto& v : pWork) v = std::norm (v);
         pFft.inverse (pWork);
@@ -510,6 +562,7 @@ private:
     std::vector<double> bucketPower;
     std::vector<long> bucketCount;
     int64_t filled = 0, sinceHop = 0, speechFrames = 0;
+    double peakFrameDb = -200.0;
 
     int pLen = 1920, pHop = 960, minLag = 137, maxLag = 738, pFftLen = 4096;
     FFT pFft;
@@ -528,6 +581,11 @@ private:
     std::array<double, 4> sub {};
     std::vector<double> blocks;
     int loudnessChannels = 1;
+    static constexpr int kHistOffsetDb = 140;      // Frame-Pegel -140..+9 dBFS in 1-dB-Klassen
+    std::array<int64_t, 150> levelHist {};
+    int64_t clipped = 0;
+    std::vector<float> audio;
+    size_t audioCap = 0;
 };
 
 //==============================================================================
@@ -888,6 +946,8 @@ struct EngineParams
     float targetLufs = -23.0f;
     float takeLufs = -100.0f;    // learned per-channel equivalent after EQ; live channel count is added below
     float rideOffsetDb = -2.5f;  // typischer Sprechpegel relativ zur integrierten Lautheit (gelernt)
+    float calibDb = 0.0f;        // Autopilot: nachgemessene Korrektur der Grundverstaerkung (EQ, De-Esser, Leveler), +-6 dB
+    bool peakGuard = false;      // Autopilot: Spitzenschutz bei kPeakCeilingDb
 };
 
 class Engine
@@ -895,14 +955,22 @@ class Engine
 public:
     static constexpr int kMaxCh = 2;
     static constexpr double kMaxRangeDb = 10.0;   // Leveler-Regelbereich bei 100 %
+    static constexpr double kPeakCeilingDb = -1.0;   // Spitzenschutz: hoechster Sample-Pegel am Ausgang
+    static constexpr float kMaxCalibDb = 6.0f;    // groesste Autopilot-Nachkorrektur der Grundverstaerkung
+    static constexpr double kMaxStaticDb = 40.0;  // groesste Grundverstaerkung (auch sehr leise, saubere Aufnahmen erreichen das Ziel)
 
     std::atomic<float> meterRideDb { 0.0f }, meterStaticDb { 0.0f }, meterDeessDb { 0.0f }, meterDeessPeakDb { 0.0f },
-                       meterInLufs { -100.0f }, meterOutLufs { -100.0f }, meterOutPeakDb { -100.0f };
+                       meterInLufs { -100.0f }, meterOutLufs { -100.0f }, meterOutPeakDb { -100.0f },
+                       meterGuardDb { 0.0f };   // groesste Absenkung des Spitzenschutzes im letzten Block (dB)
     // Integrierte Ausgangslautheit nach ITU-R BS.1770 / EBU R128 (400-ms-Bloecke, 75 % Ueberlappung,
     // absolutes Gate -70 LUFS, relatives Gate -10 LU). -100 = noch keine Messung. Gleiche Kanalbehandlung wie das Ziel.
     std::atomic<float> meterIntLufs { -100.0f }, meterIntSeconds { 0.0f };
     std::atomic<bool> intResetRequest { false };
     void resetIntegrated() noexcept { intResetRequest.store (true); }
+    // Wiedergabestart: Leveler beginnt neutral wie beim Export, statt einen Zustand von vorher (z. B. aus der
+    // Lernphase mit anderer Grundverstaerkung) mitzuschleppen. So klingt jede Wiedergabe gleich.
+    std::atomic<bool> levelerResetRequest { false };
+    void resetLeveler() noexcept { levelerResetRequest.store (true); }
 
     void prepare (double sampleRate)
     {
@@ -928,6 +996,8 @@ public:
         rideUpCoef = 1.0 - std::exp (-dt / 1.5);
         rideDownCoef = 1.0 - std::exp (-dt / 0.8);
         rideSmoothCoef = 1.0 - std::exp (-dt / 0.3);
+        guardRel = 1.0 - std::exp (-1.0 / (0.08 * fs));
+        guardCeiling = std::pow (10.0, kPeakCeilingDb / 20.0);
         neutral[0] = neutral[1] = true;
         cur = 0; fading = false; bankQueued = false;
         lastLowcut = -1.0f;
@@ -957,6 +1027,7 @@ public:
         staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
         gainStatic = std::pow (10.0, staticDb / 20.0);
         gainRide = 1.0;
+        guardGain = 1.0;
         listenMix = params.deessListen ? 1.0 : 0.0;
         ctl = 0;
     }
@@ -978,6 +1049,7 @@ public:
         p.targetLufs = finiteClamp (p.targetLufs, -30, -14, -23);
         p.takeLufs = finiteClamp (p.takeLufs, -100, 24, -100);
         p.rideOffsetDb = finiteClamp (p.rideOffsetDb, -8, 0, -2.5f);
+        p.calibDb = finiteClamp (p.calibDb, -kMaxCalibDb, kMaxCalibDb, 0);
         // Feinabstimmung: Koeffizienten nur bei Aenderung neu rechnen
         const bool fineChanged = fineDirty || p.fineOn != params.fineOn || p.fineHz != params.fineHz
                                  || p.fineDb != params.fineDb || p.fineQ != params.fineQ;
@@ -1047,6 +1119,7 @@ public:
             clearIntegrated();
         }
         if (intResetRequest.exchange (false)) clearIntegrated();
+        if (levelerResetRequest.exchange (false)) { ride1 = ride2 = 0.0; gainRide = 1.0; msK = 0.0; }
         const double invCh = 1.0 / numCh;
         // De-Esser: Schwelle (Anteil der Hoehen ueber der Frequenz an der Gesamtleistung) und maximale Absenkung
         const double dAmt = params.deessOn ? std::clamp ((double) params.deess, 0.0, 1.0) : 0.0;
@@ -1054,7 +1127,7 @@ public:
         const double dThr = kDeessThr0 - kDeessThrPerAmt * dAmt;
         const double dMax = kDeessMax0 + kDeessMaxPerAmt * dAmt;
         const double dSlope = kDeessSlope;
-        double minDeessGain = 1, peak = 0;
+        double minDeessGain = 1, peak = 0, minGuardGain = 1;
 
         for (int i = 0; i < n; ++i)
         {
@@ -1122,7 +1195,7 @@ public:
 
             listenMix += std::clamp ((params.deessListen ? 1.0 : 0.0) - listenMix, -listenStep, listenStep);
             const double gStatic = gainStatic;
-            double kpIn = 0, kpOut = 0;
+            double kpIn = 0, kpOut = 0, outs[kMaxCh] = {};
             for (int c = 0; c < numCh; ++c)
             {
                 auto& ch = chans[(size_t) c];
@@ -1134,7 +1207,23 @@ public:
                 // Messung fuer den Leveler: nach der Grundverstaerkung, vor dem Leveler
                 const double k = ch.k2.process (kHp, ch.k1.process (kShelf, d * gStatic));
                 kpIn += k * k;
-                const double o = v * gainRide;
+                outs[c] = v * gainRide;
+            }
+            // Spitzenschutz (Autopilot): latenzfrei, greift nur, wenn eine Spitze die Grenze wirklich ueberschreitet.
+            // Sofort auf die noetige Absenkung, danach in 80 ms zurueck. Beide Kanaele gekoppelt (kein Wandern im Stereobild).
+            if (params.peakGuard)
+            {
+                double p = 0;
+                for (int c = 0; c < numCh; ++c) p = std::max (p, std::abs (outs[c]));
+                guardGain += guardRel * (1.0 - guardGain);
+                if (p * guardGain > guardCeiling) guardGain = guardCeiling / p;
+                minGuardGain = std::min (minGuardGain, guardGain);
+            }
+            else guardGain = 1.0;
+            for (int c = 0; c < numCh; ++c)
+            {
+                auto& ch = chans[(size_t) c];
+                const double o = outs[c] * guardGain;
                 const double ko = ch.o2.process (kHp, ch.o1.process (kShelf, o));
                 kpOut += ko * ko;
                 io[c][i] = (float) o;
@@ -1147,6 +1236,7 @@ public:
             if (++hopPos >= hopLen) { integrateHop (hopAcc / hopLen); hopAcc = 0.0; hopPos = 0; }
         }
         const double maxDe = -20.0 * std::log10 (minDeessGain);
+        meterGuardDb.store ((float) (-20.0 * std::log10 (minGuardGain)));
         meterRideDb.store ((float) ride2);
         meterStaticDb.store ((float) staticDb);
         meterDeessDb.store ((float) maxDe);
@@ -1227,7 +1317,7 @@ private:
     double desiredStaticDb() const
     {
         if (params.takeLufs <= -99.0f) return 0.0;
-        return std::clamp ((double) params.targetLufs - params.takeLufs - channelLoudnessDb, -30.0, 30.0);
+        return std::clamp ((double) params.targetLufs - params.takeLufs - channelLoudnessDb + params.calibDb, -kMaxStaticDb, kMaxStaticDb);
     }
 
     // Steuertakt alle 16 Samples: Grundverstaerkung und Leveler
@@ -1286,8 +1376,153 @@ private:
     double loudCoef = 0, msK = 0, outMs = 0;
     double staticDb = 0, ride1 = 0, ride2 = 0, gainRide = 1;
     double listenMix = 0, listenStep = 1;
+    double guardGain = 1, guardRel = 0, guardCeiling = 0.891;
     double gainStatic = 1, staticCoef = 0, rideOffCoef = 0, rideUpCoef = 0, rideDownCoef = 0, rideSmoothCoef = 0;
     int ctl = 0;
 };
+
+//==============================================================================
+//  Autopilot: Einstellungen aus dem Gelernten ableiten und das Ergebnis selbst nachmessen.
+//  Laeuft nie im Audio-Thread.
+//==============================================================================
+namespace autopilot
+{
+constexpr float kToleranceDb = 1.0f;          // so viel Faerbung (im Mittel) darf nach dem Angleich uebrig bleiben
+constexpr float kMinAmount = 0.45f, kMaxAmount = 0.85f;
+constexpr float kMinLowcut = 80.0f, kMaxLowcut = 110.0f;
+constexpr float kNoiseWarnSnrDb = 40.0f;      // darunter ist Grundrauschen in Pausen deutlich hoerbar
+constexpr float kGuardWarnDb = 3.0f;          // darueber greift der Spitzenschutz deutlich ein (sehr dynamische Aufnahme)
+
+// Mittlere Faerbung (dB) einer Kurve im Angleich-Bereich, 100 Hz - 8 kHz
+inline float meanAbsDb (const GridCurve& c)
+{
+    double s = 0; int n = 0;
+    for (int i = 0; i < kRefGridPoints; ++i)
+        if (kRefGridHz[i] >= 100.0f && kRefGridHz[i] <= 8000.0f) { s += std::abs (c[(size_t) i]); ++n; }
+    return n > 0 ? (float) (s / n) : 0.0f;
+}
+
+// Wie weit weicht die Spur (geglaettet, nur die Klangform) von der Referenz ab: Korrektur bei 100 %
+inline float colourationDb (const GridCurve& take, int reg, float lowcutHz, float matchLoHz, float matchHiHz)
+{
+    return meanAbsDb (correctionCurve (take, reg, 1.0f, lowcutHz, matchLoHz, matchHiHz));
+}
+
+// "So wenig wie moeglich, so viel wie noetig": Die Angleichung wird so gewaehlt, dass im Mittel hoechstens
+// kToleranceDb Faerbung von Mikrofon und Raum uebrig bleibt. Fast neutrale Takes werden nur leicht angefasst
+// (Stimmcharakter bleibt), stark gefaerbte deutlicher, aber nie ganz auf die Referenz gezogen.
+inline float suggestAmount (const GridCurve& take, int reg, float lowcutHz, float matchLoHz, float matchHiHz)
+{
+    const float d = colourationDb (take, reg, lowcutHz, matchLoHz, matchHiHz);
+    const float a = d > 1e-3f ? 1.0f - kToleranceDb / d : 0.0f;
+    const float clamped = std::clamp (a, kMinAmount, kMaxAmount);
+    return std::round (clamped * 20.0f) / 20.0f;   // 5-%-Schritte
+}
+
+// Lowcut nach der Tonhoehe: deutlich unter dem Grundton, damit die Stimme unangetastet bleibt.
+// Nie unter 80 Hz, denn die gelernte Messung enthaelt bereits den Lowcut, mit dem gelernt wurde.
+inline float suggestLowcut (float pitchHz, float learnedWithLowcutHz)
+{
+    const float base = std::max (kMinLowcut, learnedWithLowcutHz);
+    if (! (pitchHz > 0.0f)) return base;
+    const float hz = std::round (0.55f * pitchHz / 5.0f) * 5.0f;
+    return std::clamp (std::max (hz, base), base, std::max (base, kMaxLowcut));
+}
+
+// Integrierte Lautheit (BS.1770) eines Mono-Signals
+inline float integratedLoudness (const std::vector<float>& x, double fs)
+{
+    const Biquad ks = kWeightShelf (fs), kh = kWeightHighPass (fs);
+    BiquadState s1, s2;
+    const int sub = std::max (1, (int) std::lround (0.1 * fs));
+    std::vector<double> blocks;
+    blocks.reserve (x.size() / (size_t) sub + 1);
+    std::array<double, 4> q {};
+    double acc = 0; int n = 0; int64_t subs = 0;
+    for (float v : x)
+    {
+        const double k = s2.process (kh, s1.process (ks, std::isfinite (v) ? v : 0.0f));
+        acc += k * k;
+        if (++n >= sub)
+        {
+            q[(size_t) (subs % 4)] = acc / n; acc = 0; n = 0;
+            if (++subs >= 4) blocks.push_back ((q[0] + q[1] + q[2] + q[3]) * 0.25);
+        }
+    }
+    return Learner::integratedLoudness (blocks);
+}
+
+struct Calibration
+{
+    bool ok = false;
+    float calibDb = 0.0f;       // Nachkorrektur der Grundverstaerkung
+    float outLufs = -100.0f;    // nachgemessene Lautheit der gelernten Passage nach der ganzen Kette
+    float peakDb = -100.0f;     // groesste Spitze dabei (dBFS), nach dem Spitzenschutz
+    float guardDb = 0.0f;       // groesste Absenkung durch den Spitzenschutz (dB)
+};
+
+// Rechnet die gelernte Passage durch die komplette Kette (Angleich-EQ, Feinabstimmung, De-Esser, Grundverstaerkung,
+// Leveler) und misst die integrierte Lautheit am Ausgang nach. Die Abweichung zum Ziel wird als calibDb
+// zurueckgegeben, so landet die Spur auf dem Ziel, auch wenn De-Esser und Leveler die Lautheit etwas verschieben.
+// audio: Mono nach dem Lowcut (wie beim Lernen abgegriffen). predictedEqDeltaDb: die Lautheitsschaetzung des EQs,
+// mit der der Prozessor die Grundverstaerkung bereits vorausberechnet.
+inline Calibration calibrate (const std::vector<float>& audio, double fs, EngineParams p,
+                              const std::array<Biquad, kBands>& bank, float predictedEqDeltaDb,
+                              const std::atomic<bool>* cancel = nullptr)
+{
+    Calibration r;
+    fs = validSampleRate (fs);
+    p.peakGuard = true;
+    if (audio.size() < (size_t) (2.0 * fs)) return r;
+    const float inLufs = integratedLoudness (audio, fs);
+    if (inLufs <= -70.0f) return r;
+    p.lowcutHz = 20.0f;   // der Mitschnitt ist schon gefiltert
+    p.deessListen = false;
+    p.takeLufs = inLufs + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
+    p.calibDb = 0.0f;
+    std::vector<float> buf (4096);
+    auto engine = std::make_unique<Engine>();
+    // Der Leveler gleicht einen Teil jeder Pegelaenderung wieder aus. Deshalb wird die Wirkung der Nachkorrektur
+    // gemessen (Sekantenverfahren) statt angenommen; nach zwei bis vier Durchlaeufen sitzt das Ziel auf 0,03 LU.
+    float prevCalib = 0.0f, prevErr = 0.0f;
+    constexpr int kPasses = 6;
+    for (int pass = 0; pass < kPasses; ++pass)
+    {
+        engine->prepare (fs);
+        engine->setParams (p);
+        engine->setBank (bank);
+        engine->reset();   // Filterbank sofort, ohne Ueberblendung
+        double peak = 0;
+        float guard = 0.0f;
+        for (size_t off = 0; off < audio.size(); off += buf.size())
+        {
+            if (cancel != nullptr && cancel->load (std::memory_order_relaxed)) return {};
+            const int n = (int) std::min (buf.size(), audio.size() - off);
+            std::copy (audio.begin() + (long) off, audio.begin() + (long) off + n, buf.begin());
+            float* ptr[] = { buf.data() };
+            engine->process (ptr, 1, n, nullptr);
+            for (int i = 0; i < n; ++i) peak = std::max (peak, (double) std::abs (buf[(size_t) i]));
+            guard = std::max (guard, engine->meterGuardDb.load());
+        }
+        const float out = engine->meterIntLufs.load();
+        if (out <= -70.0f) return {};
+        r.outLufs = out;
+        r.peakDb = (float) (20.0 * std::log10 (peak + 1e-12));
+        r.guardDb = guard;
+        const float err = out - p.targetLufs;
+        if (std::abs (err) < 0.03f || pass == kPasses - 1) break;   // letzter Wert ist immer der nachgemessene
+        float slope = 1.0f;
+        if (pass > 0 && std::abs (p.calibDb - prevCalib) > 1e-3f)
+            slope = std::clamp ((err - prevErr) / (p.calibDb - prevCalib), 0.2f, 1.5f);
+        prevCalib = p.calibDb; prevErr = err;
+        const float next = std::clamp (p.calibDb - err / slope, -Engine::kMaxCalibDb, Engine::kMaxCalibDb);
+        if (next == p.calibDb) break;   // an der Grenze: mehr geht nicht
+        p.calibDb = next;
+    }
+    r.calibDb = p.calibDb;
+    r.ok = true;
+    return r;
+}
+} // namespace autopilot
 
 } // namespace dop

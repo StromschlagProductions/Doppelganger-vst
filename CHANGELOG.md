@@ -1,5 +1,17 @@
 # Änderungen
 
+## 1.8 – 19. November 2026
+
+- **Autopilot (AUTO, Standard an):** Nach dem Lernen stellt das Plugin Angleichung (45–85 %, so dass höchstens 1 dB Färbung bleibt) und Lowcut (80–110 Hz nach der Tonhöhe) selbst ein.
+- **Lautheit nachgemessen:** Die gelernte Passage wird im Hintergrund durch die ganze Kette gerechnet. Die Verschiebung durch De-Esser, Leveler und EQ wird ausgeglichen (±6 dB, in Tests auf ±0,01 LU genau).
+- **Spitzenschutz bei −1 dBFS** mit AUTO: latenzfrei, Kanäle gekoppelt, in der Nachmessung enthalten.
+- **Prüfbericht** im EINGANG: „geprüft“ oder ein Hinweis bei Übersteuerung, Rauschen, sehr lauten Spitzen oder unerreichbarem Ziel. Alle Messwerte als Tooltip auf AUTO.
+- **Leise Aufnahmen** werden zuverlässig gelernt (relative statt fester Schwellen). Die Grundverstärkung reicht bis 40 dB.
+- **Leveler beginnt bei jedem Wiedergabestart neutral**, wie beim Export.
+- AUTO aus = Verhalten wie 1.7.
+
+[Release-Hinweise](docs/releases/1.8.md)
+
 ## 1.7 – 18. November 2026
 
 - **RESET unter dem EQ-Schalter:** Setzt alle fünf EQ-Bänder auf ihre Parameter-Standardwerte zurück: 0 dB, Frequenzen 100/300/1000/3000/8000 Hz und Q = 1. Der EQ-Ein-/Aus-Zustand bleibt erhalten. Die DAW wird über die Parameteränderungen benachrichtigt; Regler und Knoten folgen direkt.

@@ -53,6 +53,9 @@ public:
     static constexpr float kMinLearnSeconds = 4.0f;    // weniger Sprache reicht nicht fuer ein verlaessliches Klangbild
     static constexpr float kAutoStopSeconds = 30.0f;   // danach beendet das Plugin das Lernen spaetestens selbst
     static constexpr float kConvergeCheckFromSeconds = 10.0f;   // ab hier prueft es jede Sekunde, ob es genug gelernt hat
+    static constexpr double kCaptureSeconds = 40.0;  // so viel des Gelernten wird fuer die Nachmessung behalten
+    bool isAutopilotOn() const { return pAutopilot->load() > 0.5f; }
+    void waitForCalibration (int timeoutMs);   // fuer Tests: wartet, bis die Nachmessung fertig uebernommen ist
     bool wasStoppedAutomatically() const { return stoppedAuto.load(); }
 
     // Fuer die Anzeige (Message-Thread)
@@ -64,6 +67,15 @@ public:
         float fitErrorDb = 0.0f;
         juce::String message;          // letzte Meldung (z. B. "zu wenig Sprache")
         bool needsRelearnForLoudness = false;   // Profil aus v0.2 ohne Lautheitsmessung
+
+        // Autopilot: was er eingestellt und nachgemessen hat
+        bool autopilot = true;
+        float colourBeforeDb = 0.0f;   // mittlere Faerbung durch Mikrofon/Raum vor dem Angleich
+        float colourAfterDb = 0.0f;    // was davon nach dem Angleich uebrig bleibt
+        dop::autopilot::Calibration calibration;   // nachgemessene Lautheit der gelernten Passage
+        bool calibrationCurrent = false;   // gilt fuer die aktuellen Einstellungen
+        bool calibrationPending = false;   // Nachmessung laeuft
+        bool canRecalibrate = false;       // gelerntes Audio liegt vor (nicht nach Projekt-Laden)
     };
     DisplayInfo getDisplayInfo() const;
 
@@ -85,6 +97,36 @@ private:
     void redesign();
     void updateTakeLoudness();          // Lautheit nach EQ + Feinabstimmung (Aufrufer haelt stateLock)
     int effectiveRegister() const;
+    void applyAutopilotSettings();      // nach dem Lernen: Angleichung und Lowcut setzen (ohne stateLock aufrufen)
+    void updateCalibration();           // Nachmessung anstossen / Ergebnis uebernehmen (Message-Thread)
+    std::vector<float> calibrationKey() const;
+
+    // Hintergrund-Thread fuer die Nachmessung: rechnet die gelernte Passage durch die ganze Kette.
+    class CalibrationWorker : public juce::Thread
+    {
+    public:
+        struct Request
+        {
+            std::shared_ptr<const std::vector<float>> audio;
+            double fs = 48000.0;
+            dop::EngineParams params;
+            std::array<dop::Biquad, dop::kBands> bank {};
+            float eqDeltaDb = 0.0f;
+            uint64_t id = 0;
+        };
+        CalibrationWorker() : juce::Thread ("Doppelganger Nachmessung") {}
+        ~CalibrationWorker() override { signalThreadShouldExit(); cancel = true; notify(); stopThread (4000); }
+        void submit (Request r);
+        bool fetch (dop::autopilot::Calibration& out, uint64_t& id);
+        void run() override;
+    private:
+        juce::CriticalSection lock;
+        Request request;
+        bool hasRequest = false, hasResult = false;
+        dop::autopilot::Calibration result;
+        uint64_t resultId = 0;
+        std::atomic<bool> cancel { false };
+    };
 
     dop::Engine engine;
     dop::Learner learner;
@@ -137,7 +179,18 @@ private:
     std::atomic<float>* pFineOn = nullptr;
     std::array<std::atomic<float>*, dop::kFineBands> pFineHz {}, pFineDb {}, pFineQ {};
     std::array<float, 3 * dop::kFineBands + 1> lastFineSnap {};   // Stand, bei dem die Lautheit zuletzt berechnet wurde
-    std::atomic<float> takeLufs { -100.0f }, rideOffset { -2.5f };
+    std::atomic<float> takeLufs { -100.0f }, rideOffset { -2.5f }, calibDb { 0.0f };
+    float eqDeltaDb = 0.0f;                     // Lautheitsschaetzung des EQs (fuer die Nachmessung)
+    std::array<dop::Biquad, dop::kBands> designedBank {};
+    std::atomic<float>* pAutopilot = nullptr;
+    std::shared_ptr<const std::vector<float>> calibAudio;   // gelernte Passage (nur Message-Thread)
+    float learnedWithLowcut = 80.0f;
+    bool autoApplyPending = false;
+    std::vector<float> lastCalibKey, submittedCalibKey;
+    juce::uint32 calibKeyChangedAt = 0;
+    uint64_t calibRequestId = 0;
+    dop::autopilot::Calibration storedCalibration;          // aus dem Projekt geladen
+    CalibrationWorker calibWorker;
     std::atomic<float>* pTarget = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DoppelgangerProcessor)
