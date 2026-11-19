@@ -287,7 +287,7 @@ void channelLearning()
 void autopilotProcessor()
 {
     constexpr double fs = 48000;
-    auto measure = [] (DoppelgangerProcessor& p, double seconds)
+    auto measure = [fs] (DoppelgangerProcessor& p, double seconds)
     {
         p.getEngine().resetIntegrated();
         p.getEngine().resetLeveler();   // wie beim Wiedergabestart
@@ -371,8 +371,8 @@ void autopilotProcessor()
         CHECK (! quiet->isLearning());   // von selbst fertig geworden
         DoppelgangerProcessorTestAccess::tick (*quiet); DoppelgangerProcessorTestAccess::tick (*quiet);
         quiet->waitForCalibration (20000);
-        const auto qi = quiet->getDisplayInfo();
-        CHECK (qi.profile.valid && qi.calibrationCurrent && std::abs (qi.calibration.outLufs + 23.0f) <= 0.05f);
+        const auto quietInfo = quiet->getDisplayInfo();
+        CHECK (quietInfo.profile.valid && quietInfo.calibrationCurrent && std::abs (quietInfo.calibration.outLufs + 23.0f) <= 0.05f);
         quiet->getEngine().resetIntegrated(); quiet->getEngine().resetLeveler();
         feedQuiet (false);
         CHECK (std::abs (quiet->getEngine().meterIntLufs.load() + 23.0f) <= 0.1f);
