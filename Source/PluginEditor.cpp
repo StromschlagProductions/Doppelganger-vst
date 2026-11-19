@@ -51,7 +51,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Beim Lernen misst Doppelganger das Klangbild, die Tonhöhe und die Lautheit der Spur. Aus dem Unterschied zur Vorlage "
           "entsteht eine geglättete Korrekturkurve. Angeglichen wird die Färbung von Mikrofon und Raum, nicht die Stimme selbst: "
           "ein Bass bleibt ein Bass, eine helle Stimme bleibt hell.");
-    body ("Weg durchs Plugin: Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, dann Grundverstärkung und Leveler. Latenzfrei.");
+    body ("Weg durchs Plugin: Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, dann Grundverstärkung und Leveler, mit AUTO zum Schluss der Spitzenschutz. Latenzfrei.");
     note ("Gedacht für Dialog in Hörspielen, Hörbüchern und Podcasts. Nicht für Gesang, Effektstimmen oder als Rauschunterdrückung: "
           "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
@@ -79,8 +79,9 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Liegt Auto einmal daneben, die Stimmlage einfach fest einstellen.");
 
     head ("ANGLEICHUNG und LOWCUT");
-    body ("Angleichung: wie stark die Klangfarbe an die Referenz angeglichen wird. 100 % = ganz, 60 % (Standard) = Mikrofon und Raum werden "
-          "angeglichen, die eigene Farbe der Stimme bleibt. Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt.");
+    body ("Angleichung: wie stark die Klangfarbe an die Referenz angeglichen wird. 100 % = ganz, 60 % = Mikrofon und Raum werden "
+          "angeglichen, die eigene Farbe der Stimme bleibt. Mit AUTO stellt das Plugin den Wert nach dem Lernen selbst ein (45 bis 85 %), ohne AUTO gilt 60 %. "
+          "Angeglichen wird nur die Klangform, nie der Pegel. Die Korrektur ist auf ±9 dB begrenzt.");
     body ("Angleich-Bereich: Im Klangbild stehen links und rechts zwei orange Begrenzer. Angeglichen wird nur dazwischen, außerhalb bleibt der Take "
           "unverändert (weicher Übergang über eine Drittel-Oktave). Am Griff unten am Rand oder an der Linie ziehen, Umschalt = fein, Doppelklick = Standard. "
           "Standard: unten keine Grenze, oben 12 kHz. Darüber sind die Referenzen nicht mehr verlässlich, die Höhen des Takes bleiben deshalb, wie sie sind. "
@@ -106,14 +107,15 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Standard: alle Bänder 0 dB, Feinabstimmung aus, der Klang bleibt dann unverändert.");
     body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. Umschalt macht Ziehen und Mausrad feiner. "
           "Ziehen schaltet die Feinabstimmung automatisch ein. Die Regler darunter stellen dieselben Werte als Zahl ein.");
-    body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe.");
+    body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe. Mit AUTO wird nach jeder Änderung neu nachgemessen.");
     body ("RESET unter dem AN/AUS-Schalter setzt alle fünf Bänder auf 0 dB, Standardfrequenzen und Q = 1 zurück. Der EQ bleibt an oder aus wie zuvor.");
 
     head ("LAUTHEIT");
     body ("Mono und Stereo werden kanalrichtig nach BS.1770 gemessen: Die Energien von links und rechts werden addiert. "
           "Die Grundverstärkung berücksichtigt die Kanalzahl; eine Stereo-Spur mit gleichem Signal auf beiden Kanälen benötigt rund 3 dB weniger Verstärkung als Mono. "
           "Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
-          "Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
+          "Mit AUTO wird sie zusätzlich nachgemessen: Das Plugin rechnet die gelernte Passage durch die ganze Kette und gleicht aus, was EQ, De-Esser und Leveler "
+          "an der Lautheit verschieben. Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
           "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Bei jedem Wiedergabestart beginnt er neutral, genau wie beim Export.");
     body ("Messwert oben rechts in der Karte: die gemessene Lautheit des Ausgangs, integriert nach EBU R128, wie sie ein Loudness-Meter am Ende einer "
