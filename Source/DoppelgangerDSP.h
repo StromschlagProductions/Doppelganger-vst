@@ -1462,18 +1462,20 @@ inline float integratedLoudness (const std::vector<float>& x, double fs, float l
 
 // True Peak (dBTP) nach dem Verfahren aus BS.1770 Anhang 2: 4-fach ueberabgetastet, hier mit einem
 // Hann-gefensterten Sinc-Interpolator (12 Stuetzstellen je Phase). Nur fuer die Pruefung, nie im Audio-Thread.
+// Konstanten ausserhalb der Funktion: MSVC verlangt sonst eine explizite Lambda-Erfassung (C3493)
+constexpr int kTpOver = 4, kTpTaps = 12, kTpHalf = kTpTaps / 2;
 inline float truePeakDb (const std::vector<float>& x)
 {
-    constexpr int kOver = 4, kTaps = 12, kHalf = kTaps / 2;
+    constexpr int kOver = kTpOver, kTaps = kTpTaps, kHalf = kTpHalf;
     static const auto coeffs = []
     {
-        std::array<std::array<double, kTaps>, kOver> c {};
-        for (int ph = 0; ph < kOver; ++ph)
-            for (int t = 0; t < kTaps; ++t)
+        std::array<std::array<double, kTpTaps>, kTpOver> c {};
+        for (int ph = 0; ph < kTpOver; ++ph)
+            for (int t = 0; t < kTpTaps; ++t)
             {
-                const double pos = (t - kHalf + 1) - (double) ph / kOver;   // Abstand zur Stuetzstelle in Samples
+                const double pos = (t - kTpHalf + 1) - (double) ph / kTpOver;   // Abstand zur Stuetzstelle in Samples
                 const double sinc = std::abs (pos) < 1e-12 ? 1.0 : std::sin (kPi * pos) / (kPi * pos);
-                const double w = 0.5 + 0.5 * std::cos (kPi * pos / (kHalf + 0.5));
+                const double w = 0.5 + 0.5 * std::cos (kPi * pos / (kTpHalf + 0.5));
                 c[(size_t) ph][(size_t) t] = sinc * w;
             }
         return c;
