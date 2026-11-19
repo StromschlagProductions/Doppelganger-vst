@@ -51,6 +51,7 @@ struct LiveFrame
 struct LearnBlock
 {
     std::array<float, 512> samples {};
+    std::array<float, 512> raw {};            // Mono-Eingang vor jeder Bearbeitung (Autopilot-Mitschnitt)
     std::array<double, 512> loudnessPower {}; // sum of independently K-weighted channel powers
     uint64_t generation = 0;
     int count = 0;

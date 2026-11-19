@@ -1,5 +1,14 @@
 # Änderungen
 
+## 2.0 – 19. November 2026
+
+- **Behoben:** Nach Speichern/Laden konnte eine veraltete Nachmessung als „geprüft“ gelten. Die Messung wird jetzt mit den Einstellungen gespeichert, für die sie gilt.
+- **Behoben:** Nach einer Lowcut-Änderung wich die Nachmessung leicht ab (z. B. −23,0 gemeldet, −23,3 LUFS tatsächlich). Mitgeschnitten wird jetzt der Eingang vor dem Lowcut.
+- **Prüfbericht:** zeigt zusätzlich den True Peak (dBTP). Der Spitzenschutz begrenzt weiterhin Sample-Spitzen auf −1 dBFS.
+- Klang und Parameter unverändert. Projekte aus 1.8/1.9: einmal neu lernen, damit die Messung wieder als geprüft gilt.
+
+[Release-Hinweise](docs/releases/2.0.md)
+
 ## 1.9 – 19. November 2026
 
 - Die eingebaute Hilfe beschreibt den Autopiloten jetzt auch beim Weg durchs Plugin (Spitzenschutz am Ende), bei der Angleichung (mit AUTO 45–85 %, ohne AUTO 60 %) sowie bei Lautheit und EQ (Nachmessung durch die ganze Kette).

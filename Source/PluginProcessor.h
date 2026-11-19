@@ -112,6 +112,7 @@ private:
             dop::EngineParams params;
             std::array<dop::Biquad, dop::kBands> bank {};
             float eqDeltaDb = 0.0f;
+            float learnedLowcutHz = 80.0f;
             uint64_t id = 0;
         };
         CalibrationWorker() : juce::Thread ("Doppelganger Nachmessung") {}
@@ -187,6 +188,8 @@ private:
     float learnedWithLowcut = 80.0f;
     bool autoApplyPending = false;
     std::vector<float> lastCalibKey, submittedCalibKey;
+    std::vector<float> calibratedKey;   // Einstellungen, fuer die info.calibration gemessen wurde (auch gespeichert)
+    static bool calibrationKeysMatch (const std::vector<float>&, const std::vector<float>&);
     juce::uint32 calibKeyChangedAt = 0;
     uint64_t calibRequestId = 0;
     dop::autopilot::Calibration storedCalibration;          // aus dem Projekt geladen

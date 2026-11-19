@@ -332,7 +332,7 @@ public:
         audio.clear();
     }
 
-    // Autopilot: die gelernten Sekunden (Mono nach dem Lowcut) mitschreiben, damit der Prozessor die ganze Kette
+    // Autopilot: die gelernten Sekunden (Mono-Eingang vor dem Lowcut) mitschreiben, damit der Prozessor die ganze Kette
     // anschliessend damit durchrechnen und die Lautheit exakt nachmessen kann. Nur Message-Thread.
     void beginCapture (double seconds)
     {
@@ -345,14 +345,17 @@ public:
 
     // Mono spectral/pitch tap, with optional summed per-channel K-weighted power.
     // Loudness must not use the squared stereo downmix: that loses side-channel energy.
-    void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1, int clippedInBlock = 0)
+    // captureSource: was fuer die Nachmessung mitgeschnitten wird (der Eingang vor dem Lowcut); ohne Angabe x
+    void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1, int clippedInBlock = 0,
+               const float* captureSource = nullptr)
     {
         loudnessChannels = channelPower ? std::clamp (channels, 1, 2) : 1;
         clipped += std::max (0, clippedInBlock);
         for (int i = 0; i < n; ++i)
         {
             const double v = std::isfinite (x[i]) ? x[i] : 0.0;
-            if (audio.size() < audioCap) audio.push_back ((float) v);
+            if (audio.size() < audioCap)
+                audio.push_back (captureSource != nullptr ? (std::isfinite (captureSource[i]) ? captureSource[i] : 0.0f) : (float) v);
             // Spektrum
             buf[(size_t) (filled % frameLen)] = v;
             ++filled;
@@ -1429,11 +1432,14 @@ inline float suggestLowcut (float pitchHz, float learnedWithLowcutHz)
     return std::clamp (std::max (hz, base), base, std::max (base, kMaxLowcut));
 }
 
-// Integrierte Lautheit (BS.1770) eines Mono-Signals
-inline float integratedLoudness (const std::vector<float>& x, double fs)
+// Integrierte Lautheit (BS.1770) eines Mono-Signals, optional nach einem Lowcut (24 dB/Oktave wie in der Engine)
+inline float integratedLoudness (const std::vector<float>& x, double fs, float lowcutHz = 0.0f)
 {
+    fs = validSampleRate (fs);
     const Biquad ks = kWeightShelf (fs), kh = kWeightHighPass (fs);
-    BiquadState s1, s2;
+    const bool lc = lowcutHz > 20.5f && std::isfinite (lowcutHz);
+    const Biquad lc1 = lc ? highPass (fs, lowcutHz, 0.5412) : Biquad {}, lc2 = lc ? highPass (fs, lowcutHz, 1.3066) : Biquad {};
+    BiquadState s1, s2, l1, l2;
     const int sub = std::max (1, (int) std::lround (0.1 * fs));
     std::vector<double> blocks;
     blocks.reserve (x.size() / (size_t) sub + 1);
@@ -1441,7 +1447,9 @@ inline float integratedLoudness (const std::vector<float>& x, double fs)
     double acc = 0; int n = 0; int64_t subs = 0;
     for (float v : x)
     {
-        const double k = s2.process (kh, s1.process (ks, std::isfinite (v) ? v : 0.0f));
+        double in = std::isfinite (v) ? v : 0.0f;
+        if (lc) in = l2.process (lc2, l1.process (lc1, in));
+        const double k = s2.process (kh, s1.process (ks, in));
         acc += k * k;
         if (++n >= sub)
         {
@@ -1452,6 +1460,45 @@ inline float integratedLoudness (const std::vector<float>& x, double fs)
     return Learner::integratedLoudness (blocks);
 }
 
+// True Peak (dBTP) nach dem Verfahren aus BS.1770 Anhang 2: 4-fach ueberabgetastet, hier mit einem
+// Hann-gefensterten Sinc-Interpolator (12 Stuetzstellen je Phase). Nur fuer die Pruefung, nie im Audio-Thread.
+// Konstanten ausserhalb der Funktion: MSVC verlangt sonst eine explizite Lambda-Erfassung (C3493)
+constexpr int kTpOver = 4, kTpTaps = 12, kTpHalf = kTpTaps / 2;
+inline float truePeakDb (const std::vector<float>& x)
+{
+    constexpr int kOver = kTpOver, kTaps = kTpTaps, kHalf = kTpHalf;
+    static const auto coeffs = []
+    {
+        std::array<std::array<double, kTpTaps>, kTpOver> c {};
+        for (int ph = 0; ph < kTpOver; ++ph)
+            for (int t = 0; t < kTpTaps; ++t)
+            {
+                const double pos = (t - kTpHalf + 1) - (double) ph / kTpOver;   // Abstand zur Stuetzstelle in Samples
+                const double sinc = std::abs (pos) < 1e-12 ? 1.0 : std::sin (kPi * pos) / (kPi * pos);
+                const double w = 0.5 + 0.5 * std::cos (kPi * pos / (kTpHalf + 0.5));
+                c[(size_t) ph][(size_t) t] = sinc * w;
+            }
+        return c;
+    }();
+    double peak = 0;
+    const long n = (long) x.size();
+    for (long i = 0; i < n; ++i)
+    {
+        peak = std::max (peak, (double) std::abs (x[(size_t) i]));
+        for (int ph = 1; ph < kOver; ++ph)
+        {
+            double y = 0;
+            for (int t = 0; t < kTaps; ++t)
+            {
+                const long k = i + t - kHalf + 1;
+                if (k >= 0 && k < n) y += coeffs[(size_t) ph][(size_t) t] * x[(size_t) k];
+            }
+            peak = std::max (peak, std::abs (y));
+        }
+    }
+    return (float) (20.0 * std::log10 (peak + 1e-12));
+}
+
 struct Calibration
 {
     bool ok = false;
@@ -1459,28 +1506,29 @@ struct Calibration
     float outLufs = -100.0f;    // nachgemessene Lautheit der gelernten Passage nach der ganzen Kette
     float peakDb = -100.0f;     // groesste Spitze dabei (dBFS), nach dem Spitzenschutz
     float guardDb = 0.0f;       // groesste Absenkung durch den Spitzenschutz (dB)
+    float truePeakDb = -100.0f; // True Peak dabei (dBTP); der Spitzenschutz begrenzt Sample-Spitzen, nicht True Peak
 };
 
 // Rechnet die gelernte Passage durch die komplette Kette (Angleich-EQ, Feinabstimmung, De-Esser, Grundverstaerkung,
 // Leveler) und misst die integrierte Lautheit am Ausgang nach. Die Abweichung zum Ziel wird als calibDb
 // zurueckgegeben, so landet die Spur auf dem Ziel, auch wenn De-Esser und Leveler die Lautheit etwas verschieben.
-// audio: Mono nach dem Lowcut (wie beim Lernen abgegriffen). predictedEqDeltaDb: die Lautheitsschaetzung des EQs,
-// mit der der Prozessor die Grundverstaerkung bereits vorausberechnet.
+// audio: Mono-Eingang VOR dem Lowcut, so dass auch ein geaenderter Lowcut (p.lowcutHz) mitgerechnet wird.
+// learnedLowcutHz: Lowcut, mit dem gelernt wurde. Die gelernte Lautheit (und damit die vorausberechnete
+// Grundverstaerkung im Prozessor) bezieht sich darauf. predictedEqDeltaDb: die Lautheitsschaetzung des EQs.
 inline Calibration calibrate (const std::vector<float>& audio, double fs, EngineParams p,
-                              const std::array<Biquad, kBands>& bank, float predictedEqDeltaDb,
+                              const std::array<Biquad, kBands>& bank, float predictedEqDeltaDb, float learnedLowcutHz,
                               const std::atomic<bool>* cancel = nullptr)
 {
     Calibration r;
     fs = validSampleRate (fs);
     p.peakGuard = true;
     if (audio.size() < (size_t) (2.0 * fs)) return r;
-    const float inLufs = integratedLoudness (audio, fs);
+    const float inLufs = integratedLoudness (audio, fs, learnedLowcutHz);   // wie beim Lernen gemessen
     if (inLufs <= -70.0f) return r;
-    p.lowcutHz = 20.0f;   // der Mitschnitt ist schon gefiltert
-    p.deessListen = false;
+    p.deessListen = false;   // p.lowcutHz bleibt: der aktuelle Lowcut wirkt auf den ungefilterten Mitschnitt
     p.takeLufs = inLufs + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
     p.calibDb = 0.0f;
-    std::vector<float> buf (4096);
+    std::vector<float> buf (4096), out (audio.size());
     auto engine = std::make_unique<Engine>();
     // Der Leveler gleicht einen Teil jeder Pegelaenderung wieder aus. Deshalb wird die Wirkung der Nachkorrektur
     // gemessen (Sekantenverfahren) statt angenommen; nach zwei bis vier Durchlaeufen sitzt das Ziel auf 0,03 LU.
@@ -1502,21 +1550,26 @@ inline Calibration calibrate (const std::vector<float>& audio, double fs, Engine
             float* ptr[] = { buf.data() };
             engine->process (ptr, 1, n, nullptr);
             for (int i = 0; i < n; ++i) peak = std::max (peak, (double) std::abs (buf[(size_t) i]));
+            std::copy (buf.begin(), buf.begin() + n, out.begin() + (long) off);
             guard = std::max (guard, engine->meterGuardDb.load());
         }
-        const float out = engine->meterIntLufs.load();
-        if (out <= -70.0f) return {};
-        r.outLufs = out;
+        const float outLufs = engine->meterIntLufs.load();
+        if (outLufs <= -70.0f) return {};
+        r.outLufs = outLufs;
         r.peakDb = (float) (20.0 * std::log10 (peak + 1e-12));
         r.guardDb = guard;
-        const float err = out - p.targetLufs;
-        if (std::abs (err) < 0.03f || pass == kPasses - 1) break;   // letzter Wert ist immer der nachgemessene
+        const float err = outLufs - p.targetLufs;
+        if (std::abs (err) < 0.03f || pass == kPasses - 1)
+        {
+            r.truePeakDb = truePeakDb (out);
+            break;   // letzter Wert ist immer der nachgemessene
+        }
         float slope = 1.0f;
         if (pass > 0 && std::abs (p.calibDb - prevCalib) > 1e-3f)
             slope = std::clamp ((err - prevErr) / (p.calibDb - prevCalib), 0.2f, 1.5f);
         prevCalib = p.calibDb; prevErr = err;
         const float next = std::clamp (p.calibDb - err / slope, -Engine::kMaxCalibDb, Engine::kMaxCalibDb);
-        if (next == p.calibDb) break;   // an der Grenze: mehr geht nicht
+        if (next == p.calibDb) { r.truePeakDb = truePeakDb (out); break; }   // an der Grenze: mehr geht nicht
         p.calibDb = next;
     }
     r.calibDb = p.calibDb;

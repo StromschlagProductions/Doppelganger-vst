@@ -218,6 +218,8 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             for (int c = 0; c < numCh; ++c)
                 for (int i = 0; i < m; ++i) clipped += std::abs (ptrs[c][i]) >= 0.999f ? 1 : 0;
             audioLearnBlock.clipped = clipped;
+            for (int i = 0; i < m; ++i)   // vor dem Lowcut, damit die Nachmessung jeden Lowcut nachrechnen kann
+                audioLearnBlock.raw[(size_t) i] = numCh > 1 ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
         }
         if (capture)
             for (int i = 0; i < m; ++i)
@@ -274,7 +276,8 @@ void DoppelgangerProcessor::drainFifo()
     const auto session = learnGeneration.load();
     for (int i = 0; i < 256 && learnQueue.pop (drainBlock); ++i)
         if ((session & 1u) != 0 && drainBlock.generation == session)
-            learner.push (drainBlock.samples.data(), drainBlock.count, drainBlock.loudnessPower.data(), drainBlock.channels, drainBlock.clipped);
+            learner.push (drainBlock.samples.data(), drainBlock.count, drainBlock.loudnessPower.data(), drainBlock.channels, drainBlock.clipped,
+                          drainBlock.raw.data());
     if ((session & 1u) != 0 && overflowGeneration.load() == session)
     {
         learnGeneration.fetch_add (1);
@@ -464,6 +467,7 @@ void DoppelgangerProcessor::finishLearning()
         calibDb = 0.0f;
         lastCalibKey.clear();
         submittedCalibKey.clear();
+        calibratedKey.clear();
         learnedWithLowcut = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
         autoApplyPending = pAutopilot->load() > 0.5f;
         designDirty = true;
@@ -491,6 +495,7 @@ void DoppelgangerProcessor::forgetProfile()
     calibAudio.reset();
     storedCalibration = {};
     info.calibration = {};
+    calibratedKey.clear();
     calibDb = 0.0f;
     autoApplyPending = false;
     stoppedAuto = false;
@@ -547,6 +552,7 @@ void DoppelgangerProcessor::updateCalibration()
     if (calibWorker.fetch (res, id) && id == calibRequestId)
     {
         info.calibration = res;
+        calibratedKey = res.ok ? submittedCalibKey : std::vector<float> {};   // die Messung gilt genau fuer diese Einstellungen
         if (res.ok) calibDb = res.calibDb;
         info.calibrationPending = false;
     }
@@ -569,10 +575,9 @@ void DoppelgangerProcessor::updateCalibration()
     }
     if (calibAudio == nullptr)
     {
-        // Nach dem Laden: gespeicherte Nachmessung gilt, solange die Einstellungen gleich bleiben
-        if (submittedCalibKey.empty()) submittedCalibKey = key;
+        // Nach dem Laden: gespeicherte Nachmessung gilt nur fuer die Einstellungen, fuer die sie gemessen wurde
         info.calibration = storedCalibration;
-        info.calibrationCurrent = storedCalibration.ok && key == submittedCalibKey;
+        info.calibrationCurrent = storedCalibration.ok && calibrationKeysMatch (key, calibratedKey);
         info.calibrationPending = false;
         return;
     }
@@ -582,6 +587,8 @@ void DoppelgangerProcessor::updateCalibration()
         CalibrationWorker::Request r;
         r.audio = calibAudio;
         r.fs = currentFs;
+        r.params.lowcutHz = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
+        r.learnedLowcutHz = learnedWithLowcut;
         r.params.deessOn = pDeessOn->load() > 0.5f;
         r.params.deess = pDeess->load() * 0.01f;
         r.params.deessFreqHz = pDeessFreq->load();
@@ -601,7 +608,17 @@ void DoppelgangerProcessor::updateCalibration()
         info.calibrationPending = true;
         calibWorker.submit (std::move (r));
     }
-    info.calibrationCurrent = ! info.calibrationPending && info.calibration.ok && key == submittedCalibKey;
+    info.calibrationCurrent = ! info.calibrationPending && info.calibration.ok && calibrationKeysMatch (key, calibratedKey);
+}
+
+bool DoppelgangerProcessor::calibrationKeysMatch (const std::vector<float>& a, const std::vector<float>& b)
+{
+    // Gespeicherte Werte (Profilkurve mit drei Nachkommastellen) koennen minimal abweichen; 0,01 ist bei allen
+    // Eintraegen (Prozent, Hz, LUFS, dB) weit unter jeder hoer- oder messbaren Aenderung.
+    if (a.empty() || a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (! (std::abs (a[i] - b[i]) <= 0.01f)) return false;
+    return true;
 }
 
 void DoppelgangerProcessor::waitForCalibration (int timeoutMs)
@@ -647,7 +664,7 @@ void DoppelgangerProcessor::CalibrationWorker::run()
             if (hasRequest) { r = std::move (request); request = {}; hasRequest = false; cancel = false; }
         }
         if (r.audio == nullptr) { wait (-1); continue; }
-        const auto c = dop::autopilot::calibrate (*r.audio, r.fs, r.params, r.bank, r.eqDeltaDb, &cancel);
+        const auto c = dop::autopilot::calibrate (*r.audio, r.fs, r.params, r.bank, r.eqDeltaDb, r.learnedLowcutHz, &cancel);
         const juce::ScopedLock sl (lock);
         if (! hasRequest)   // sonst ist das Ergebnis schon veraltet
         {
@@ -702,6 +719,10 @@ void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
                 pt.setProperty ("calibLufs", info.calibration.outLufs, nullptr);
                 pt.setProperty ("calibPeak", info.calibration.peakDb, nullptr);
                 pt.setProperty ("calibGuard", info.calibration.guardDb, nullptr);
+                pt.setProperty ("calibTruePeak", info.calibration.truePeakDb, nullptr);
+                juce::StringArray keyText;   // fuer welche Einstellungen gemessen wurde
+                for (float v : calibratedKey) keyText.add (juce::String (v, 6));
+                pt.setProperty ("calibKey", keyText.joinIntoString (" "), nullptr);
             }
             state.appendChild (pt, nullptr);
         }
@@ -719,6 +740,7 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
 
     dop::LearnedProfile p;
     dop::autopilot::Calibration loadedCalib;
+    std::vector<float> loadedKey;
     const auto pt = state.getChildWithName ("PROFILE");
     if (pt.isValid())
     {
@@ -749,6 +771,12 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
                 loadedCalib.outLufs = (float) pt.getProperty ("calibLufs", -100.0f);
                 loadedCalib.peakDb = (float) pt.getProperty ("calibPeak", -100.0f);
                 loadedCalib.guardDb = juce::jlimit (0.0f, 60.0f, (float) pt.getProperty ("calibGuard", 0.0f));
+                loadedCalib.truePeakDb = (float) pt.getProperty ("calibTruePeak", -100.0f);
+                if (! std::isfinite (loadedCalib.truePeakDb)) loadedCalib.truePeakDb = -100.0f;
+                juce::StringArray keyText;   // fehlt in Projekten aus 1.8/1.9: dann gilt die Messung nie als geprueft
+                keyText.addTokens (pt.getProperty ("calibKey").toString(), " ", "");
+                keyText.removeEmptyStrings();
+                for (auto& t : keyText) loadedKey.push_back (t.getFloatValue());
                 loadedCalib.ok = std::isfinite (loadedCalib.calibDb) && std::abs (loadedCalib.calibDb) <= dop::Engine::kMaxCalibDb
                                  && std::isfinite (loadedCalib.outLufs) && std::isfinite (loadedCalib.peakDb);
                 if (! loadedCalib.ok) loadedCalib = {};
@@ -778,6 +806,7 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
         if (! sameProfile || ! info.calibration.ok)
         {
             info.calibration = loadedCalib;
+            calibratedKey = loadedCalib.ok ? loadedKey : std::vector<float> {};
             calibDb = loadedCalib.ok ? loadedCalib.calibDb : 0.0f;
         }
         lastCalibKey.clear();

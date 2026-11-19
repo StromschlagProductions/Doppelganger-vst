@@ -349,6 +349,45 @@ void autopilotProcessor()
     r->waitForCalibration (500);
     CHECK (! r->getDisplayInfo().calibrationCurrent && ! r->getDisplayInfo().autopilot);
 
+    // Fehler aus 1.9: Regler geaendert und gespeichert, bevor die neue Nachmessung fertig ist. Nach dem Laden darf die
+    // alte Messung nicht als geprueft gelten (sie gehoert zu anderen Einstellungen).
+    {
+        setParam (*p, "leveler", 90); DoppelgangerProcessorTestAccess::tick (*p);   // Nachmessung noch nicht fertig
+        CHECK (! p->getDisplayInfo().calibrationCurrent);
+        juce::MemoryBlock early; p->getStateInformation (early);
+        auto loaded = std::make_unique<DoppelgangerProcessor>(); loaded->prepareToPlay (fs, 512);
+        loaded->setStateInformation (early.getData(), (int) early.getSize()); DoppelgangerProcessorTestAccess::tick (*loaded);
+        CHECK (loaded->getDisplayInfo().calibration.ok && ! loaded->getDisplayInfo().calibrationCurrent);
+        // fertig gemessen und dann gespeichert: nach dem Laden geprueft
+        p->waitForCalibration (20000);
+        CHECK (p->getDisplayInfo().calibrationCurrent);
+        juce::MemoryBlock done; p->getStateInformation (done);
+        auto loaded2 = std::make_unique<DoppelgangerProcessor>(); loaded2->prepareToPlay (fs, 512);
+        loaded2->setStateInformation (done.getData(), (int) done.getSize()); DoppelgangerProcessorTestAccess::tick (*loaded2);
+        CHECK (loaded2->getDisplayInfo().calibrationCurrent);
+        CHECK (std::abs (measure (*loaded2, 12) - loaded2->getDisplayInfo().calibration.outLufs) <= 0.1f);
+        // Projekt ohne Fingerabdruck (aus 1.8/1.9): Messung bleibt wirksam, gilt aber nicht als geprueft
+        auto xml = juce::AudioProcessor::getXmlFromBinary (done.getData(), (int) done.getSize());
+        CHECK (xml != nullptr);
+        if (auto* prof = xml->getChildByName ("PROFILE")) prof->removeAttribute ("calibKey");
+        juce::MemoryBlock old; juce::AudioProcessor::copyXmlToBinary (*xml, old);
+        auto loaded3 = std::make_unique<DoppelgangerProcessor>(); loaded3->prepareToPlay (fs, 512);
+        loaded3->setStateInformation (old.getData(), (int) old.getSize()); DoppelgangerProcessorTestAccess::tick (*loaded3);
+        CHECK (loaded3->getDisplayInfo().calibration.ok && ! loaded3->getDisplayInfo().calibrationCurrent);
+    }
+
+    // Fehler aus 1.9: Lowcut nach dem Lernen geaendert. Die Nachmessung muss den neuen Lowcut auf das ungefilterte
+    // Eingangssignal rechnen, sonst weicht der Ausgang vom gemeldeten Wert ab.
+    for (float newLowcut : { 150.0f, 40.0f })
+    {
+        setParam (*p, "lowcut", newLowcut); DoppelgangerProcessorTestAccess::tick (*p);
+        p->waitForCalibration (20000);
+        const auto li = p->getDisplayInfo();
+        CHECK (li.calibrationCurrent && std::abs (li.calibration.outLufs + 18.0f) <= 0.05f);
+        const float live = measure (*p, 12);
+        CHECK (std::abs (live + 18.0f) <= 0.1f);
+    }
+
     // Vergessen raeumt alles ab
     p->forgetProfile(); DoppelgangerProcessorTestAccess::tick (*p);
     info = p->getDisplayInfo();
