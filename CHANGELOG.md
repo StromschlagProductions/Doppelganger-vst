@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.9 – 19. November 2026
+
+- Die eingebaute Hilfe beschreibt den Autopiloten jetzt auch beim Weg durchs Plugin (Spitzenschutz am Ende), bei der Angleichung (mit AUTO 45–85 %, ohne AUTO 60 %) sowie bei Lautheit und EQ (Nachmessung durch die ganze Kette).
+- Klang, Parameter und gespeicherte Projekte unverändert gegenüber 1.8.
+
+[Release-Hinweise](docs/releases/1.9.md)
+
 ## 1.8 – 19. November 2026
 
 - **Autopilot (AUTO, Standard an):** Nach dem Lernen stellt das Plugin Angleichung (45–85 %, so dass höchstens 1 dB Färbung bleibt) und Lowcut (80–110 Hz nach der Tonhöhe) selbst ein.
