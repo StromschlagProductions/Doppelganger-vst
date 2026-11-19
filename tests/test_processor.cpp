@@ -243,6 +243,7 @@ void channelLearning()
         auto layout = p->getBusesLayout();
         const auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
         layout.inputBuses.set (0, set); layout.outputBuses.set (0, set); CHECK (p->setBusesLayout (layout));
+        p->apvts.getParameter ("autopilot")->setValueNotifyingHost (0.0f);   // feste Einstellungen pruefen
         auto* lowcut = p->apvts.getParameter ("lowcut"); lowcut->setValueNotifyingHost (lowcut->convertTo0to1 (20));
         auto* amount = p->apvts.getParameter ("amount"); amount->setValueNotifyingHost (0);
         p->prepareToPlay (fs, 512);
@@ -282,9 +283,120 @@ void channelLearning()
     CHECK (restored->getDisplayInfo().profile.valid && restored->getDisplayInfo().profile.loudnessChannels == 1);
     CHECK (std::abs (DoppelgangerProcessorTestAccess::takeLufs (*restored) - DoppelgangerProcessorTestAccess::takeLufs (*stereo)) < .002f);
 }
+// Autopilot: nach dem Lernen stellt er Angleichung und Lowcut ein, misst die Kette nach, und die Spur landet auf dem Ziel
+void autopilotProcessor()
+{
+    constexpr double fs = 48000;
+    auto measure = [] (DoppelgangerProcessor& p, double seconds)
+    {
+        p.getEngine().resetIntegrated();
+        p.getEngine().resetLeveler();   // wie beim Wiedergabestart
+        feed (p, fs, seconds, false);
+        return p.getEngine().meterIntLufs.load();
+    };
+    auto setParam = [] (DoppelgangerProcessor& p, const char* id, float v)
+    { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+
+    auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (fs, 512);
+    CHECK (p->isAutopilotOn());   // Standard: an
+    setParam (*p, "deess", 100);  // starker De-Esser verschiebt die Lautheit, die Nachmessung muss das ausgleichen
+    p->startLearning(); feed (*p, fs, 12); p->finishLearning();
+    DoppelgangerProcessorTestAccess::tick (*p);   // uebernimmt die Autopilot-Einstellungen
+    DoppelgangerProcessorTestAccess::tick (*p);
+    auto info = p->getDisplayInfo();
+    CHECK (info.profile.valid && info.autopilot);
+    const float amount = p->apvts.getRawParameterValue ("amount")->load();
+    const float lowcut = p->apvts.getRawParameterValue ("lowcut")->load();
+    CHECK (amount == std::round (100 * dop::autopilot::suggestAmount (info.profile.curveDb, info.effectiveRegister, lowcut, 20, 12000)));
+    CHECK (lowcut == dop::autopilot::suggestLowcut (info.profile.pitchHz, 80));
+    CHECK (info.colourAfterDb < info.colourBeforeDb);
+    p->waitForCalibration (20000);
+    info = p->getDisplayInfo();
+    CHECK (info.calibration.ok && info.calibrationCurrent && ! info.calibrationPending && info.canRecalibrate);
+    CHECK (std::abs (info.calibration.outLufs + 23.0f) <= 0.05f);
+    CHECK (info.calibration.peakDb <= -0.99f);
+    // Wiedergabe derselben Art von Material: integrierte Lautheit am Ausgang trifft das Ziel
+    const float onTarget = measure (*p, 12);
+    CHECK (std::abs (onTarget + 23.0f) <= 0.1f);
+
+    // Ziel aendern: neue Nachmessung, Ausgang folgt
+    setParam (*p, "target", -18); DoppelgangerProcessorTestAccess::tick (*p);
+    p->waitForCalibration (20000);
+    info = p->getDisplayInfo();
+    CHECK (info.calibrationCurrent && std::abs (info.calibration.outLufs + 18.0f) <= 0.05f);
+    CHECK (std::abs (measure (*p, 12) + 18.0f) <= 0.1f);
+
+    // Projekt speichern/laden: Nachmessung bleibt erhalten, ohne erneut zu lernen
+    juce::MemoryBlock state; p->getStateInformation (state);
+    // Derselbe Zustand in dieselbe Instanz (Undo, Preset-Vergleich): gelerntes Audio bleibt, Nachmessung weiter moeglich
+    p->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*p);
+    CHECK (p->getDisplayInfo().canRecalibrate && p->getDisplayInfo().calibration.ok);
+    auto q = std::make_unique<DoppelgangerProcessor>(); q->prepareToPlay (fs, 512);
+    q->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*q);
+    auto qi = q->getDisplayInfo();
+    CHECK (qi.calibration.ok && qi.calibrationCurrent && ! qi.canRecalibrate);
+    CHECK (std::abs (qi.calibration.calibDb - info.calibration.calibDb) < 1e-3f);
+    CHECK (std::abs (measure (*q, 12) + 18.0f) <= 0.1f);
+    setParam (*q, "leveler", 10); DoppelgangerProcessorTestAccess::tick (*q);
+    CHECK (! q->getDisplayInfo().calibrationCurrent);   // geaendert, ohne gelerntes Audio nicht nachmessbar
+
+    // Autopilot aus: bisheriges Verhalten, Regler bleiben wie eingestellt, keine Nachkorrektur
+    auto r = std::make_unique<DoppelgangerProcessor>(); r->prepareToPlay (fs, 512);
+    setParam (*r, "autopilot", 0); setParam (*r, "amount", 33); setParam (*r, "lowcut", 60);
+    r->startLearning(); feed (*r, fs, 12); r->finishLearning();
+    DoppelgangerProcessorTestAccess::tick (*r); DoppelgangerProcessorTestAccess::tick (*r);
+    CHECK (r->apvts.getRawParameterValue ("amount")->load() == 33 && r->apvts.getRawParameterValue ("lowcut")->load() == 60);
+    r->waitForCalibration (500);
+    CHECK (! r->getDisplayInfo().calibrationCurrent && ! r->getDisplayInfo().autopilot);
+
+    // Vergessen raeumt alles ab
+    p->forgetProfile(); DoppelgangerProcessorTestAccess::tick (*p);
+    info = p->getDisplayInfo();
+    CHECK (! info.profile.valid && ! info.calibration.ok && ! info.canRecalibrate);
+
+    // Leise, saubere Aufnahme (30 dB unter normal, etwa -54 LUFS): Lernen wird fertig, Ausgang landet trotzdem auf dem Ziel
+    {
+        auto quiet = std::make_unique<DoppelgangerProcessor>(); quiet->prepareToPlay (fs, 512);
+        auto feedQuiet = [&] (bool tick)
+        {
+            auto x = voice (fs, 16); juce::AudioBuffer<float> b (2, 512);
+            for (size_t off = 0; off < x.size(); off += 512)
+            {
+                const int n = (int) std::min ((size_t) 512, x.size() - off); b.setSize (2, n, false, false, true);
+                for (int ch = 0; ch < 2; ++ch) for (int i = 0; i < n; ++i) b.setSample (ch, i, x[off + (size_t) i] * 0.0316f);
+                process (*quiet, b); if (tick) DoppelgangerProcessorTestAccess::tick (*quiet);
+            }
+        };
+        quiet->startLearning(); feedQuiet (true);
+        CHECK (! quiet->isLearning());   // von selbst fertig geworden
+        DoppelgangerProcessorTestAccess::tick (*quiet); DoppelgangerProcessorTestAccess::tick (*quiet);
+        quiet->waitForCalibration (20000);
+        const auto qi = quiet->getDisplayInfo();
+        CHECK (qi.profile.valid && qi.calibrationCurrent && std::abs (qi.calibration.outLufs + 23.0f) <= 0.05f);
+        quiet->getEngine().resetIntegrated(); quiet->getEngine().resetLeveler();
+        feedQuiet (false);
+        CHECK (std::abs (quiet->getEngine().meterIntLufs.load() + 23.0f) <= 0.1f);
+    }
+
+    // Uebersteuerung am Eingang wird beim Lernen gezaehlt
+    auto c = std::make_unique<DoppelgangerProcessor>(); c->prepareToPlay (fs, 512);
+    c->startLearning();
+    {
+        auto x = voice (fs, 6); juce::AudioBuffer<float> b (2, 512);
+        for (size_t off = 0; off < x.size(); off += 512)
+        {
+            const int n = (int) std::min ((size_t) 512, x.size() - off); b.setSize (2, n, false, false, true);
+            for (int ch = 0; ch < 2; ++ch) for (int i = 0; i < n; ++i) b.setSample (ch, i, juce::jlimit (-1.0f, 1.0f, x[off + (size_t) i] * 12.0f));
+            process (*c, b); DoppelgangerProcessorTestAccess::tick (*c);
+        }
+    }
+    c->finishLearning();
+    CHECK (c->getDisplayInfo().profile.clippedSamples > 100);
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio();
+    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

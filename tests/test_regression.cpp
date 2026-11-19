@@ -2,6 +2,8 @@
 #include "TestSupport.h"
 #include "../Source/LiveSpectrum.h"
 #include <limits>
+#include <atomic>
+#include <tuple>
 
 void spectrumTests()
 {
@@ -410,4 +412,181 @@ void channelLoudnessTests()
     }
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); channelLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+// Autopilot: Einstellungen aus dem Gelernten, Pruefung der Aufnahme und Nachmessung der Lautheit
+void autopilotTests()
+{
+    // Angleichung: "so wenig wie moeglich, so viel wie noetig", immer im erlaubten Bereich, in 5-%-Schritten
+    for (int reg : { dop::kTief, dop::kMittel, dop::kHoch })
+    {
+        dop::GridCurve neutral {};
+        for (int i = 0; i < dop::kRefGridPoints; ++i) neutral[(size_t) i] = dop::referenceCurve (reg)[i];
+        CHECK (dop::autopilot::colourationDb (neutral, reg, 80, 20, 12000) < 0.01f);
+        CHECK (dop::autopilot::suggestAmount (neutral, reg, 80, 20, 12000) == dop::autopilot::kMinAmount);
+        float previous = 0;
+        for (float tilt : { 1.f, 2.f, 4.f, 8.f, 16.f })   // Mikrofon immer dumpfer
+        {
+            auto take = neutral;
+            for (int i = 0; i < dop::kRefGridPoints; ++i) take[(size_t) i] -= tilt * (float) std::log2 (dop::kRefGridHz[i] / 1000.0f) / 4.0f;
+            const float a = dop::autopilot::suggestAmount (take, reg, 80, 20, 12000);
+            CHECK (a >= dop::autopilot::kMinAmount && a <= dop::autopilot::kMaxAmount);
+            CHECK (std::abs (a * 20 - std::round (a * 20)) < 1e-4f);
+            CHECK (a >= previous);   // staerkere Faerbung -> nie weniger Angleichung
+            previous = a;
+            // Was nach dem Angleich bleibt, ist hoechstens die Toleranz (ausser die Obergrenze greift)
+            const auto full = dop::correctionCurve (take, reg, 1, 80, 20, 12000);
+            const auto used = dop::correctionCurve (take, reg, a, 80, 20, 12000);
+            dop::GridCurve rest {}; for (size_t i = 0; i < rest.size(); ++i) rest[i] = full[i] - used[i];
+            if (a < dop::autopilot::kMaxAmount) CHECK (dop::autopilot::meanAbsDb (rest) <= dop::autopilot::kToleranceDb + 0.06f);
+        }
+        CHECK (previous == dop::autopilot::kMaxAmount);
+    }
+    // Lowcut nach Tonhoehe, nie unter dem Lowcut, mit dem gelernt wurde
+    CHECK (dop::autopilot::suggestLowcut (0, 80) == 80);
+    CHECK (dop::autopilot::suggestLowcut (110, 80) == 80);
+    CHECK (dop::autopilot::suggestLowcut (180, 80) == 100);
+    CHECK (dop::autopilot::suggestLowcut (260, 80) == 110);
+    CHECK (dop::autopilot::suggestLowcut (110, 120) == 120);
+    CHECK (dop::autopilot::suggestLowcut (std::numeric_limits<float>::quiet_NaN(), 80) == 80);
+
+    // Rauschabstand und Uebersteuerung beim Lernen
+    {
+        const double fs = 48000;
+        auto x = voice (fs, 12.0);
+        dop::Learner clean; clean.prepare (fs); clean.push (x.data(), (int) x.size());
+        CHECK (clean.finish().noiseSnrDb == -1.0f);   // nur digitale Stille in den Pausen: nichts zu beurteilen
+        uint32_t r = 99;
+        for (auto& v : x) { r = r * 1664525u + 1013904223u; v += (float) (0.001 * std::sqrt (3.0) * ((double) (int32_t) r / 2147483648.0)); }
+        dop::Learner noisy; noisy.prepare (fs); noisy.push (x.data(), (int) x.size(), nullptr, 1, 17);
+        const auto p = noisy.finish();
+        CHECK (p.valid && dop::isValidProfile (p));
+        CHECK (p.noiseSnrDb > 25 && p.noiseSnrDb < dop::autopilot::kNoiseWarnSnrDb);   // Rauschen bei -60 dBFS
+        CHECK (p.clippedSamples == 17);
+        auto bad = p; bad.noiseSnrDb = std::numeric_limits<float>::quiet_NaN(); CHECK (! dop::isValidProfile (bad));
+        bad = p; bad.clippedSamples = -1; CHECK (! dop::isValidProfile (bad));
+        // Mitschnitt: begrenzt, wird beim Abholen freigegeben
+        dop::Learner cap; cap.prepare (fs); cap.beginCapture (2.0); cap.push (x.data(), (int) x.size());
+        auto audio = cap.takeCapturedAudio();
+        CHECK (audio.size() == (size_t) (2 * fs) && std::equal (audio.begin(), audio.end(), x.begin()));
+        CHECK (cap.takeCapturedAudio().empty());
+        cap.reset(); cap.push (x.data(), 100); CHECK (cap.takeCapturedAudio().empty());   // ohne beginCapture nichts
+    }
+
+    // calibDb verschiebt die Grundverstaerkung exakt
+    {
+        auto run = [] (float calib)
+        {
+            dop::Engine e; e.prepare (48000); auto p = bypass(); p.takeLufs = -30; p.calibDb = calib;
+            e.setParams (p); e.reset();
+            auto x = voice (48000, 1.0); float* q[] = { x.data() }; e.process (q, 1, (int) x.size(), nullptr);
+            return x;
+        };
+        const auto a = run (0), b = run (2.5f), c = run (100.0f), d = run (-100.0f);
+        for (size_t i = 0; i < a.size(); i += 97) if (std::abs (a[i]) > 1e-4f) CHECK (std::abs (b[i] / a[i] - std::pow (10.0f, 2.5f / 20)) < 1e-3f);
+        for (size_t i = 0; i < a.size(); i += 97) if (std::abs (a[i]) > 1e-4f)
+        {
+            CHECK (std::abs (c[i] / a[i] - std::pow (10.0f, dop::Engine::kMaxCalibDb / 20)) < 1e-3f);   // begrenzt
+            CHECK (std::abs (d[i] / a[i] - std::pow (10.0f, -dop::Engine::kMaxCalibDb / 20)) < 1e-3f);
+        }
+    }
+
+    // Leise, saubere Aufnahmen: gleiches Ergebnis wie laut, nur der Pegel unterscheidet sich
+    for (double fs : { 44100., 48000., 96000. })
+    {
+        const auto loud = voice (fs, 12.0);
+        dop::Learner a; a.prepare (fs); a.push (loud.data(), (int) loud.size());
+        const auto ref = a.finish();
+        for (double gainDb : { -20.0, -40.0 })
+        {
+            auto x = loud; for (auto& v : x) v *= (float) std::pow (10.0, gainDb / 20.0);
+            dop::Learner b; b.prepare (fs); b.push (x.data(), (int) x.size());
+            const auto q = b.finish();
+            CHECK (q.valid && dop::isValidProfile (q));
+            CHECK (std::abs (q.speechSeconds - ref.speechSeconds) < 0.5f);   // Lernen wird genauso fertig
+            CHECK (std::abs (q.pitchHz - ref.pitchHz) < 1.0f);
+            // bei -64 LUFS greift normgerecht das absolute -70-LUFS-Gate fuer einige leise Silbenenden
+            CHECK (std::abs (q.loudnessLufs - (ref.loudnessLufs + (float) gainDb)) < (gainDb < -30 ? 0.2f : 0.05f));
+            CHECK (dop::curveDistanceDb (q.curveDb, ref.curveDb) < 0.1);
+        }
+    }
+
+    // Spitzenschutz: haelt -1 dBFS sample-genau, latenzfrei, ohne ihn bleibt alles bitgleich wie bisher
+    for (double fs : { 22050., 48000., 192000. })
+    {
+        auto x = voice (fs, 3.0);
+        for (size_t i = 0; i < x.size(); i += (size_t) (fs * 0.25)) x[i] = 0.9f;   // einzelne harte Spitzen (Plosive, Klicks)
+        auto run = [&] (bool guard, int channels)
+        {
+            dop::Engine e; e.prepare (fs); auto p = bypass(); p.takeLufs = -40; p.targetLufs = -14; p.peakGuard = guard;
+            e.setParams (p); e.reset();
+            auto l = x, r = x; for (auto& v : r) v *= 0.5f;
+            float maxGuard = 0;
+            for (size_t o = 0; o < l.size(); o += 256)
+            {
+                float* q[] = { l.data() + o, r.data() + o };
+                e.process (q, channels, (int) std::min<size_t> (256, l.size() - o), nullptr);
+                maxGuard = std::max (maxGuard, e.meterGuardDb.load());
+            }
+            return std::make_tuple (l, r, maxGuard);
+        };
+        const auto [plain, plainR, g0] = run (false, 2);
+        const auto [held, heldR, g1] = run (true, 2);
+        const float ceiling = (float) std::pow (10.0, dop::Engine::kPeakCeilingDb / 20.0);
+        float plainPeak = 0;
+        for (float v : plain) plainPeak = std::max (plainPeak, std::abs (v));
+        CHECK (plainPeak > 2.0f && g0 == 0.0f);        // ohne Schutz: weit ueber 0 dBFS (Anhebung um 26 dB)
+        for (size_t i = 0; i < held.size(); ++i)
+        {
+            CHECK (std::abs (held[i]) <= ceiling * 1.0001f && std::abs (heldR[i]) <= ceiling * 1.0001f);
+            if (std::abs (plain[i]) > 1e-6f && std::abs (held[i]) > 1e-6f)
+                CHECK (std::abs (held[i] / plain[i] - heldR[i] / plainR[i]) < 1e-4f);   // Kanaele gekoppelt
+        }
+        CHECK (g1 > 6.0f);
+        // leise Stellen bleiben unberuehrt: ohne Ueberschreitung exakt gleich
+        const auto [quiet, quietR, g2] = [&] { auto p0 = x; for (auto& v : p0) v *= 0.01f; x.swap (p0); auto r = run (true, 1); x.swap (p0); return r; }();
+        const auto [quietPlain, qR, g3] = [&] { auto p0 = x; for (auto& v : p0) v *= 0.01f; x.swap (p0); auto r = run (false, 1); x.swap (p0); return r; }();
+        CHECK (quiet == quietPlain && g2 == 0.0f && g3 == 0.0f);
+    }
+
+    // Nachmessung: Die ganze Kette landet auf dem Ziel, unabhaengig von Leveler, De-Esser, Ziel und Abtastrate
+    for (double fs : { 44100., 48000., 96000. })
+    {
+        auto x = voice (fs, 12.0);
+        // etwas Zischen dazu, damit der De-Esser wirklich arbeitet
+        auto hp = dop::highPass (fs, 5000, 0.7071); dop::BiquadState hs; uint32_t r = 7;
+        for (size_t i = 0; i < x.size(); ++i)
+            if (std::fmod (i / fs, 1.0) < 0.12) { r = r * 1664525u + 1013904223u; x[i] += (float) (0.2 * hs.process (hp, (double) (int32_t) r / 2147483648.0)); }
+        dop::Learner L; L.prepare (fs); L.beginCapture (40); L.push (x.data(), (int) x.size());
+        const auto prof = L.finish(); const auto audio = L.takeCapturedAudio();
+        CHECK (prof.valid && audio.size() == x.size());
+        const int reg = dop::registerForPitch (prof.pitchHz);
+        const auto corr = dop::correctionCurve (prof.curveDb, reg, dop::autopilot::suggestAmount (prof.curveDb, reg, 80, 20, 12000), 80, 20, 12000);
+        const auto bank = dop::fitBank (corr, fs).coeffs;
+        const float eqd = dop::eqLoudnessDeltaDb (prof.curveDb, corr);
+        const bool full = fs == 48000.;   // volle Matrix bei 48 kHz, sonst die Standardeinstellung und Extremwerte
+        for (float leveler : { 0.f, .5f, 1.f })
+            for (float deess : { 0.f, .25f, 1.f })
+                for (float target : { -23.f, -16.f })
+                {
+                    if (! full && ! ((leveler == .5f && deess == .25f) || (leveler == 1.f && deess == 1.f && target == -16.f))) continue;
+                    dop::EngineParams p; p.leveler = leveler; p.deess = deess; p.deessOn = deess > 0; p.targetLufs = target;
+                    p.rideOffsetDb = prof.typicalOffsetDb;
+                    const auto c = dop::autopilot::calibrate (audio, fs, p, bank, eqd);
+                    if (std::getenv ("DOP_VERBOSE")) std::printf ("Nachmessung fs %.0f lev %.2f de %.2f Ziel %.0f: %+.2f dB -> %.2f LUFS, Spitze %.1f\n", fs, leveler, deess, target, c.calibDb, c.outLufs, c.peakDb);
+                    CHECK (c.ok && std::abs (c.outLufs - target) <= 0.05f);
+                    CHECK (std::abs (c.calibDb) <= dop::Engine::kMaxCalibDb && std::isfinite (c.peakDb) && c.peakDb > -60);
+                    CHECK (c.peakDb <= dop::Engine::kPeakCeilingDb + 0.01f && c.guardDb >= 0);   // Spitzenschutz haelt die Grenze
+                    // unabhaengige Gegenprobe: dieselbe Kette mit calibDb, frisch gemessen
+                    dop::Engine e; e.prepare (fs); auto q = p; q.lowcutHz = 20; q.takeLufs = dop::autopilot::integratedLoudness (audio, fs) + eqd; q.calibDb = c.calibDb; q.peakGuard = true;
+                    e.setParams (q); e.setBank (bank); e.reset();
+                    auto y = audio; for (size_t o = 0; o < y.size(); o += 300) { float* pp[] = { y.data() + o }; e.process (pp, 1, (int) std::min<size_t> (300, y.size() - o), nullptr); }
+                    CHECK (std::abs (dop::autopilot::integratedLoudness (y, fs) - target) <= 0.12f);
+                }
+        // Abbruch und zu wenig Material
+        std::atomic<bool> stop { true };
+        CHECK (! dop::autopilot::calibrate (audio, fs, dop::EngineParams {}, bank, eqd, &stop).ok);
+        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) fs, 0.1f), fs, dop::EngineParams {}, bank, eqd).ok);
+        CHECK (! dop::autopilot::calibrate (std::vector<float> ((size_t) (5 * fs), 0.0f), fs, dop::EngineParams {}, bank, eqd).ok);
+    }
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); channelLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); autopilotTests(); std::puts ("DSP, FFT and learning regressions passed"); }

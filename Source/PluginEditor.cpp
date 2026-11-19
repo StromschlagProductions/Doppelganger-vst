@@ -56,10 +56,23 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
     head ("EINGANG LERNEN");
-    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme. Es prüft selbst, ob das Klangbild "
+    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme, auch bei sehr leisen, sauberen Aufnahmen. Es prüft selbst, ob das Klangbild "
           "sich nicht mehr verändert, und hört dann von allein auf (frühestens nach 10 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
           "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
+
+    head ("AUTOPILOT (AUTO)");
+    body ("Mit AUTO (Standard, oben rechts in der Karte KLANG) übernimmt das Plugin alles, was sich messen lässt. Du lernst nur und stellst bei Bedarf den De-Esser ein.");
+    body ("Nach dem Lernen stellt es die Angleichung so ein, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum übrig bleibt: kaum gefärbte Takes werden nur leicht "
+          "angefasst (45 %), stark gefärbte deutlicher, aber nie ganz auf die Referenz gezogen (höchstens 85 %). Den Lowcut setzt es nach der Tonhöhe (80 bis 110 Hz).");
+    body ("Danach rechnet es die gelernte Passage im Hintergrund einmal durch die ganze Kette und misst die Lautheit am Ausgang nach. Was De-Esser, Leveler und EQ "
+          "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Nach jeder Regleränderung misst es neu. Ein latenzfreier Spitzenschutz hält den Ausgang unter −1 dBFS "
+          "und greift nur ein, wenn eine Spitze die Grenze wirklich überschreitet.");
+    body ("Die Zeile unter der Tonhöhe zeigt das Ergebnis: grün „geprüft“ mit der nachgemessenen Lautheit, orange ein Hinweis, wenn die Aufnahme etwas hat, "
+          "das kein Regler reparieren kann: übersteuert (verzerrt), hörbares Rauschen in den Pausen, sehr laute Spitzen oder ein unerreichbares Ziel. "
+          "Mit der Maus über AUTO stehen alle Messwerte.");
+    note ("Regler bleiben jederzeit bedienbar, der Autopilot setzt sie nur einmal nach dem Lernen. AUTO aus: alles wie bis Version 1.7. "
+          "Nach dem Öffnen eines Projekts gilt die gespeicherte Nachmessung; für eine neue Prüfung nach Regleränderungen einmal neu lernen.");
 
     head ("STIMMLAGE");
     body ("Auto wählt die Referenz nach der gelernten Tonhöhe: unter 160 Hz Tief (Mann), bis 225 Hz Mittel (Frau), darüber Hoch (Frau). "
@@ -73,7 +86,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Standard: unten keine Grenze, oben 12 kHz. Darüber sind die Referenzen nicht mehr verlässlich, die Höhen des Takes bleiben deshalb, wie sie sind. "
           "Den rechten Begrenzer zum Beispiel auf 8 bis 10 kHz ziehen, wenn die Luft einer Stimme erhalten bleiben soll, den linken auf 100 bis 150 Hz, wenn "
           "der Nahbesprechungs-Bass eines Sprechers nicht angefasst werden soll.");
-    body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz.");
+    body ("Lowcut: 24 dB/Oktave, ganz links aus. Standard 80 Hz, mit AUTO nach der Tonhöhe.");
     note ("Im Bild: grau die Referenz (das Ziel), blau der Eingang (die gelernte Klangform der Spur), orange die Korrektur (±12 dB über die Bildhöhe, die Mitte ist 0 dB). Grün läuft der Ausgang live mit: das, was tatsächlich herauskommt. Oben rechts zeigt EQ, ob die Feinabstimmung eingeschaltet ist; dann ist ihr Verlauf die helle Linie mit den Punkten 1 bis 5. Abgedunkelt ist der Bereich außerhalb der Begrenzer. Je näher der Ausgang an der grauen Referenz liegt, desto besser passt die Spur.");
 
     head ("DE-ESSER");
@@ -102,14 +115,14 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
           "Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
-          "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Die Gesamtlautheit ändert er nicht.");
+          "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Bei jedem Wiedergabestart beginnt er neutral, genau wie beim Export.");
     body ("Messwert oben rechts in der Karte: die gemessene Lautheit des Ausgangs, integriert nach EBU R128, wie sie ein Loudness-Meter am Ende einer "
           "Passage anzeigt (Pausen werden ausgeblendet). Die Messung beginnt bei jedem Wiedergabestart neu, ein Klick setzt sie sofort zurück. "
           "Orange heißt: innerhalb von ±1 LU um das Ziel. Erst nach einigen Sekunden Sprache ist der Wert aussagekräftig.");
     note ("Oben im Klangbild steht zusätzlich MOMENTAN: die Lautheit der letzten 0,4 Sekunden. Sie springt mit der Sprache und fällt in Pausen ab, zum Prüfen des Ziels taugt nur der integrierte Wert.");
 
     head ("Allgemein");
-    body ("Doppelganger ist latenzfrei und hat bewusst keinen Limiter. Spitzen fängt der Limiter auf dem Master ab.");
+    body ("Doppelganger ist latenzfrei. Mit AUTO hält ein Spitzenschutz den Ausgang unter −1 dBFS (Sample-Spitze); ohne AUTO gibt es keinen, dann fängt der Limiter auf dem Master die Spitzen ab.");
     body ("Look: Dunkel / Hell. Das Fenster ist am rechten unteren Rand skalierbar (50–300 %). Beides wird mit dem Projekt gespeichert.");
 
     head ("Idee und Konzept");
@@ -476,14 +489,20 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     content.addAndMakeVisible (learnButton);
     content.addAndMakeVisible (forgetButton);
 
+    autoButton.setClickingTogglesState (true);
+    autoButton.setTooltip (u8 ("Autopilot: stellt nach dem Lernen Angleichung und Lowcut selbst ein und misst die Lautheit der ganzen Kette nach."));
+    autoAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "autopilot", autoButton);
+    content.addAndMakeVisible (autoButton);
+
     registerBox.addItemList (DoppelgangerProcessor::registerNames(), 1);
     registerBox.setTooltip (u8 ("Welche Referenzstimme? Auto wählt nach der gelernten Tonhöhe."));
     registerAtt = std::make_unique<APVTS::ComboBoxAttachment> (proc.apvts, "register", registerBox);
     content.addAndMakeVisible (registerBox);
 
     setupKnob (amountKnob, "amount", u8 ("ANGLEICHUNG"),
-               u8 ("Wie stark die Klangfarbe an die Referenz angeglichen wird. 60 % = Mikrofon und Raum, die Stimmfarbe bleibt. Doppelklick: 60 %"), 60.0);
-    setupKnob (lowcutKnob, "lowcut", u8 ("LOWCUT"), u8 ("Hochpass 24 dB/Oktave, ganz links aus. Doppelklick: 80 Hz"), 80.0);
+               u8 ("Wie stark die Klangfarbe an die Referenz angeglichen wird. Mit AUTO stellt das Plugin den Wert nach dem Lernen selbst ein: "
+                   "so viel, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum bleibt (45–85 %). Doppelklick: 60 %"), 60.0);
+    setupKnob (lowcutKnob, "lowcut", u8 ("LOWCUT"), u8 ("Hochpass 24 dB/Oktave, ganz links aus. Mit AUTO nach der Tonhöhe gesetzt (80–110 Hz). Doppelklick: 80 Hz"), 80.0);
     setupKnob (deessKnob, "deess", u8 ("STÄRKE"), u8 ("Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Doppelklick: 25 %"), 25.0);
     setupKnob (deessFreqKnob, "deessFreq", u8 ("FREQUENZ"),
                u8 ("Ab hier sucht und bearbeitet der De-Esser die S-Laute. Mit „Listen“ abhören. Doppelklick: 5,5 kHz"), 5500.0);
@@ -609,6 +628,72 @@ void DoppelgangerEditor::updateLearnButton()
     fineOnButton.setButtonText (fineOnButton.getToggleState() ? "AN" : "AUS");
 }
 
+void DoppelgangerEditor::updateAutopilotReport()
+{
+    const auto& i = shown;
+    autoLine = {}; autoState = 0;
+    juce::StringArray tip { u8 ("Autopilot: stellt nach dem Lernen Angleichung und Lowcut selbst ein und misst die Lautheit der ganzen Kette nach.") };
+    if (proc.isLearning() || ! i.profile.valid || i.needsRelearnForLoudness)
+    {
+        autoTip = tip.joinIntoString ("\n");
+        if (autoButton.getTooltip() != autoTip) autoButton.setTooltip (autoTip);
+        return;
+    }
+    if (! i.autopilot)
+    {
+        autoLine = u8 ("Autopilot aus: Einstellungen von Hand");
+        tip.add (u8 ("Ausgeschaltet: Regler bleiben, wie sie sind, die Lautheit wird nur vorausberechnet (wie bis 1.7)."));
+        autoTip = tip.joinIntoString ("\n");
+        if (autoButton.getTooltip() != autoTip) autoButton.setTooltip (autoTip);
+        return;
+    }
+    auto db1 = [] (float v) { return juce::String (v, 1).replace ("-", u8 ("−")).replace (".", ","); };
+    juce::StringArray warnings;
+    if (i.profile.clippedSamples > 0)
+        warnings.add (u8 ("Eingang übersteuert: Aufnahme verzerrt"));
+    if (i.profile.noiseSnrDb >= 0.0f && i.profile.noiseSnrDb < dop::autopilot::kNoiseWarnSnrDb)
+        warnings.add (u8 ("Rauschen hörbar: vorher entrauschen"));
+    if (i.calibration.ok && std::abs (i.calibration.outLufs - proc.apvts.getRawParameterValue ("target")->load()) > 0.5f)
+        warnings.add (u8 ("Ziel nicht erreicht (") + db1 (i.calibration.outLufs) + u8 (" LUFS): Aufnahme extrem leise/laut"));
+    if (i.calibration.ok && i.calibration.guardDb > dop::autopilot::kGuardWarnDb)
+        warnings.add (u8 ("Sehr laute Spitzen: Spitzenschutz senkt bis ") + db1 (i.calibration.guardDb) + " dB");
+
+    tip.add (u8 ("Angleichung ") + juce::String (juce::roundToInt (proc.apvts.getRawParameterValue ("amount")->load())) + u8 (" %, Lowcut ")
+             + juce::String (juce::roundToInt (proc.apvts.getRawParameterValue ("lowcut")->load())) + " Hz.");
+    tip.add (u8 ("Färbung durch Mikrofon und Raum: im Mittel ") + db1 (i.colourBeforeDb) + u8 (" dB, nach dem Angleich ") + db1 (i.colourAfterDb) + " dB.");
+    if (i.calibration.ok)
+        tip.add (u8 ("Lautheit nachgemessen: ") + db1 (i.calibration.outLufs) + u8 (" LUFS (Nachkorrektur ")
+                 + (i.calibration.calibDb >= 0 ? "+" : "") + db1 (i.calibration.calibDb) + u8 (" dB), Spitzen ") + db1 (i.calibration.peakDb) + " dBFS"
+                 + (i.calibration.guardDb > 0.05f ? u8 (", Spitzenschutz bis ") + db1 (i.calibration.guardDb) + " dB." : u8 (", Spitzenschutz nicht nötig.")));
+    tip.add (i.profile.noiseSnrDb >= 0.0f ? u8 ("Rauschabstand: ") + juce::String (juce::roundToInt (i.profile.noiseSnrDb)) + " dB."
+                                          : u8 ("Rauschabstand: keine Pausen zum Messen."));
+    if (i.profile.clippedSamples > 0)
+        tip.add (u8 ("Übersteuerte Samples am Eingang: ") + juce::String (i.profile.clippedSamples) + u8 (". Das lässt sich nicht reparieren, besser neu aufnehmen."));
+    for (auto& w : warnings) tip.add (u8 ("Hinweis: ") + w);
+
+    if (i.calibrationPending)
+        autoLine = u8 ("Autopilot misst nach …");
+    else if (! warnings.isEmpty())
+    {
+        autoLine = warnings[0];
+        autoState = 2;
+    }
+    else if (i.calibrationCurrent)
+    {
+        autoLine = u8 ("Autopilot: geprüft, ") + db1 (i.calibration.outLufs) + " LUFS";
+        autoState = 1;
+    }
+    else if (! i.canRecalibrate && i.calibration.ok)
+    {
+        autoLine = u8 ("Geändert: Lautheit geschätzt, zum Prüfen neu lernen");
+        tip.add (u8 ("Nach dem Laden eines Projekts liegt das gelernte Audio nicht mehr vor. Nach Regleränderungen wird die Lautheit deshalb nur vorausberechnet."));
+    }
+    else
+        autoLine = u8 ("Autopilot: Lautheit vorausberechnet");
+    autoTip = tip.joinIntoString ("\n");
+    if (autoButton.getTooltip() != autoTip) autoButton.setTooltip (autoTip);
+}
+
 void DoppelgangerEditor::timerCallback()
 {
     const bool visible = isShowing();
@@ -621,7 +706,7 @@ void DoppelgangerEditor::timerCallback()
         auto& e = proc.getEngine();
         intLoudness.set (e.meterIntLufs.load(), e.meterIntSeconds.load(), proc.apvts.getRawParameterValue ("target")->load());
     }
-    const auto oldHeadline = headline, oldStatus = statusText;
+    const auto oldHeadline = headline, oldStatus = statusText, oldAutoLine = autoLine;
     const auto oldCorrection = shown.correction;
     const auto oldCurve = shown.profile.curveDb;
     const bool oldValid = shown.profile.valid;
@@ -634,6 +719,7 @@ void DoppelgangerEditor::timerCallback()
 
     const bool manual = proc.apvts.getRawParameterValue ("register")->load() > 0.5f;
     headline = {};
+    updateAutopilotReport();
     if (proc.isLearning())
     {
         headline = u8 ("Lernt …");
@@ -685,7 +771,7 @@ void DoppelgangerEditor::timerCallback()
         metersChanged = metersChanged || std::round (meters[i] * 10) != std::round (shownMeters[i] * 10);
     shownMeters = meters;
     if (fresh || oldAlpha != liveAlpha || oldHold != deessHoldDb || oldHist != deessHist
-        || oldHeadline != headline || oldStatus != statusText || oldCorrection != shown.correction
+        || oldHeadline != headline || oldStatus != statusText || oldAutoLine != autoLine || oldCorrection != shown.correction
         || oldCurve != shown.profile.curveDb || oldValid != shown.profile.valid
         || oldRegister != shown.effectiveRegister || metersChanged)
         repaint();
@@ -817,11 +903,18 @@ void DoppelgangerEditor::paint (juce::Graphics& g)
     {
         g.setColour (theme.accent);
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-        g.drawText (headline, 296, 94, W - 296 - 176, 22, juce::Justification::centredLeft);
+        g.drawText (headline, 296, autoLine.isNotEmpty() ? 88 : 94, W - 296 - 176, 22, juce::Justification::centredLeft);
     }
     g.setColour (shown.message.isNotEmpty() || shown.needsRelearnForLoudness ? theme.accent : theme.text);
     g.setFont (juce::FontOptions (12.0f));
-    if (headline.isNotEmpty())
+    if (headline.isNotEmpty() && autoLine.isNotEmpty())
+    {
+        g.drawFittedText (statusText, 296, 112, W - 296 - 176, 15, juce::Justification::topLeft, 1, 0.85f);
+        g.setColour (autoState == 2 ? theme.accent : autoState == 1 ? theme.out : theme.dim);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawFittedText (autoLine, 296, 128, W - 296 - 176, 15, juce::Justification::topLeft, 1, 0.85f);
+    }
+    else if (headline.isNotEmpty())
         g.drawFittedText (statusText, 296, 118, W - 296 - 176, 26, juce::Justification::topLeft, 2, 1.0f);
     else
         g.drawFittedText (statusText, 296, 98, W - 296 - 176, 44, juce::Justification::centredLeft, 3, 1.0f);
@@ -1005,6 +1098,7 @@ void DoppelgangerEditor::resized()
     learnButton.setBounds (24, 102, 160, 34);
     forgetButton.setBounds (192, 102, 92, 34);
     registerBox.setBounds (w - 166, 102, 142, 30);
+    autoButton.setBounds (126, 313, 50, 18);
 
     auto place = [] (Knob& k, int x, int y)
     {

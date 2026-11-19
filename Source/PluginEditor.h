@@ -146,7 +146,11 @@ private:
     FineNodes fineNodes { proc.apvts };
     IntegratedLoudness intLoudness;
 
-    juce::TextButton learnButton, forgetButton, deessOnButton, deessListenButton, themeButton, helpButton;
+    juce::TextButton learnButton, forgetButton, deessOnButton, deessListenButton, themeButton, helpButton, autoButton { "AUTO" };
+    std::unique_ptr<APVTS::ButtonAttachment> autoAtt;
+    juce::String autoLine, autoTip;   // Autopilot: Pruefergebnis (eine Zeile) und ausfuehrlicher Bericht
+    int autoState = 0;                // 0 neutral, 1 alles geprueft, 2 Hinweis/Warnung
+    void updateAutopilotReport();
     std::unique_ptr<APVTS::ButtonAttachment> deessOnAtt, deessListenAtt;
     juce::ComboBox registerBox;
     std::unique_ptr<APVTS::ComboBoxAttachment> registerAtt;

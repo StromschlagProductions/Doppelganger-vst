@@ -55,6 +55,7 @@ struct LearnBlock
     uint64_t generation = 0;
     int count = 0;
     int channels = 1;
+    int clipped = 0; // input samples at or above full scale (before any processing)
 };
 static_assert (std::atomic<uint64_t>::is_always_lock_free);
 }
