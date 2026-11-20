@@ -57,7 +57,9 @@ void stateAndLearning()
     p->setStateInformation (state.getData(), (int) state.getSize());
     CHECK (p->getDisplayInfo().profile.valid);
     CHECK (dop::curveDistanceDb (p->getDisplayInfo().profile.curveDb, learned.profile.curveDb) < 0.001);
-    p->startLearning(); feed (*p, 48000, 16); CHECK (! p->isLearning()); CHECK (p->wasStoppedAutomatically());
+    p->startLearning(); feed (*p, 48000, 16); CHECK (p->isLearning());   // fruehestens nach 20 s Sprache
+    feed (*p, 48000, 14); CHECK (! p->isLearning()); CHECK (p->wasStoppedAutomatically());
+    CHECK (p->getDisplayInfo().profile.speechSeconds >= 19.9f && p->getDisplayInfo().profile.speechSeconds <= 30.5f);   // nicht vor 20 s
     CHECK (p->getDisplayInfo().profile.valid);
     // Overflow must be reported instead of silently saving a biased profile.
     p->startLearning(); feed (*p, 48000, 4, false); DoppelgangerProcessorTestAccess::tick (*p);
@@ -399,7 +401,7 @@ void autopilotProcessor()
         auto quiet = std::make_unique<DoppelgangerProcessor>(); quiet->prepareToPlay (fs, 512);
         auto feedQuiet = [&] (bool tick)
         {
-            auto x = voice (fs, 16); juce::AudioBuffer<float> b (2, 512);
+            auto x = voice (fs, 26); juce::AudioBuffer<float> b (2, 512);
             for (size_t off = 0; off < x.size(); off += 512)
             {
                 const int n = (int) std::min ((size_t) 512, x.size() - off); b.setSize (2, n, false, false, true);
@@ -501,9 +503,64 @@ void deesserAutopilotProcessor()
     }
 }
 
+// Stereo-Nachmessung durch den echten Prozessorpfad (Audio-Thread, Queue, Learner, Worker): Bei hohem Ziel und
+// stark eingreifendem Spitzenschutz muss die Nachmessung zum Stereo-Ausgang passen. Frueher wurde 0,5*(L+R)
+// einkanalig nachgerechnet; bei L=R lag der Ausgang dann fast 1 LU ueber der gemeldeten Lautheit.
+void stereoCalibrationProcessor()
+{
+    constexpr double fs = 48000;
+    auto x = voice (fs, 12);
+    for (size_t i = 0; i < x.size(); ++i)   // kurze, starke Plosiv-Spitzen
+    {
+        const double t = std::fmod (i / fs, 0.2);
+        if (t < 0.006) x[i] += (float) (0.95 * std::exp (-t / 0.0015) * std::sin (2.0 * dop::kPi * 120.0 * t));
+    }
+    auto play = [&] (DoppelgangerProcessor& p, double right, bool tick)
+    {
+        juce::AudioBuffer<float> b (2, 512);
+        for (size_t off = 0; off < x.size(); off += 512)
+        {
+            const int n = (int) std::min ((size_t) 512, x.size() - off);
+            b.setSize (2, n, false, false, true);
+            for (int i = 0; i < n; ++i) { b.setSample (0, i, x[off + (size_t) i]); b.setSample (1, i, (float) (right * x[off + (size_t) i])); }
+            process (p, b);
+            if (tick) DoppelgangerProcessorTestAccess::tick (p);
+        }
+    };
+    for (double right : { 1.0, -0.5 })
+    {
+        auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (fs, 512);
+        CHECK (p->getTotalNumInputChannels() == 2 && p->isAutopilotOn());
+        auto* target = p->apvts.getParameter ("target"); target->setValueNotifyingHost (target->convertTo0to1 (-16));
+        p->startLearning(); play (*p, right, true);
+        if (p->isLearning()) p->finishLearning();
+        DoppelgangerProcessorTestAccess::tick (*p); DoppelgangerProcessorTestAccess::tick (*p);
+        p->waitForCalibration (30000);
+        const auto info = p->getDisplayInfo();
+        CHECK (info.profile.valid && info.calibration.ok && info.calibrationCurrent);
+        CHECK (std::abs (info.calibration.outLufs + 16.0f) <= 0.05f);
+        p->getEngine().resetIntegrated(); p->getEngine().resetLeveler();
+        play (*p, right, false);
+        const float out = p->getEngine().meterIntLufs.load();
+        if (std::getenv ("DOP_VERBOSE")) std::printf ("Stereo-Prozessor R=%.1f*L: Nachmessung %.2f, Ausgang %.2f LUFS, Schutz %.1f dB\n", right, info.calibration.outLufs, out, info.calibration.guardDb);
+        CHECK (std::abs (out - info.calibration.outLufs) <= 0.06f);   // die fruehere einkanalige Nachmessung faellt hier durch
+        // Projekt: kanalgetrennte Nachmessung bleibt geprueft; eine aeltere (einkanalig gerechnete) nicht mehr
+        juce::MemoryBlock state; p->getStateInformation (state);
+        auto loaded = std::make_unique<DoppelgangerProcessor>(); loaded->prepareToPlay (fs, 512);
+        loaded->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*loaded);
+        CHECK (loaded->getDisplayInfo().calibration.ok && loaded->getDisplayInfo().calibrationCurrent);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()); CHECK (xml != nullptr);
+        if (auto* prof = xml->getChildByName ("PROFILE")) prof->removeAttribute ("calibPerChannel");
+        juce::AudioProcessor::copyXmlToBinary (*xml, state);
+        auto old = std::make_unique<DoppelgangerProcessor>(); old->prepareToPlay (fs, 512);
+        old->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*old);
+        CHECK (old->getDisplayInfo().calibration.ok && ! old->getDisplayInfo().calibrationCurrent);
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor(); deesserAutopilotProcessor();
+    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor(); stereoCalibrationProcessor(); deesserAutopilotProcessor();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

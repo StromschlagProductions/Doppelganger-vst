@@ -52,7 +52,9 @@ public:
 
     static constexpr float kMinLearnSeconds = 4.0f;    // weniger Sprache reicht nicht fuer ein verlaessliches Klangbild
     static constexpr float kAutoStopSeconds = 30.0f;   // danach beendet das Plugin das Lernen spaetestens selbst
-    static constexpr float kConvergeCheckFromSeconds = 10.0f;   // ab hier prueft es jede Sekunde, ob es genug gelernt hat
+    // ab hier prueft es jede Sekunde, ob es genug gelernt hat; drei stabile Pruefungen: fruehestens nach 20 s Sprache.
+    // Kuerzer reicht fuer das Klangbild, aber nicht fuer eine verlaessliche Lautheit der ganzen Spur.
+    static constexpr float kConvergeCheckFromSeconds = 17.0f;
     static constexpr double kCaptureSeconds = 40.0;  // so viel des Gelernten wird fuer die Nachmessung behalten
     bool isAutopilotOn() const { return pAutopilot->load() > 0.5f; }
     void waitForCalibration (int timeoutMs);   // fuer Tests: wartet, bis die Nachmessung fertig uebernommen ist
@@ -109,7 +111,7 @@ private:
     public:
         struct Request
         {
-            std::shared_ptr<const std::vector<float>> audio;
+            std::shared_ptr<const dop::CapturedAudio> audio;
             double fs = 48000.0;
             dop::EngineParams params;
             std::array<dop::Biquad, dop::kBands> bank {};
@@ -193,7 +195,7 @@ private:
     float eqDeltaDb = 0.0f;                     // Lautheitsschaetzung des EQs (fuer die Nachmessung)
     std::array<dop::Biquad, dop::kBands> designedBank {};
     std::atomic<float>* pAutopilot = nullptr;
-    std::shared_ptr<const std::vector<float>> calibAudio;   // gelernte Passage (nur Message-Thread)
+    std::shared_ptr<const dop::CapturedAudio> calibAudio;   // gelernte Passage (nur Message-Thread)
     float learnedWithLowcut = 80.0f;
     bool autoApplyPending = false;
     bool deessAnalysisWanted = false, deessAnalysisRunning = false, deessApplyPending = false;

@@ -218,8 +218,10 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             for (int c = 0; c < numCh; ++c)
                 for (int i = 0; i < m; ++i) clipped += std::abs (ptrs[c][i]) >= 0.999f ? 1 : 0;
             audioLearnBlock.clipped = clipped;
-            for (int i = 0; i < m; ++i)   // vor dem Lowcut, damit die Nachmessung jeden Lowcut nachrechnen kann
-                audioLearnBlock.raw[(size_t) i] = numCh > 1 ? 0.5f * (ptrs[0][i] + ptrs[1][i]) : ptrs[0][i];
+            // vor dem Lowcut, damit die Nachmessung jeden Lowcut nachrechnen kann; Kanaele getrennt, damit sie
+            // Lautheit und gekoppelten Spitzenschutz wie der Stereo-Ausgang nachrechnet
+            std::copy (ptrs[0], ptrs[0] + m, audioLearnBlock.raw.begin());
+            if (numCh > 1) std::copy (ptrs[1], ptrs[1] + m, audioLearnBlock.rawRight.begin());
         }
         if (capture)
             for (int i = 0; i < m; ++i)
@@ -277,7 +279,7 @@ void DoppelgangerProcessor::drainFifo()
     for (int i = 0; i < 256 && learnQueue.pop (drainBlock); ++i)
         if ((session & 1u) != 0 && drainBlock.generation == session)
             learner.push (drainBlock.samples.data(), drainBlock.count, drainBlock.loudnessPower.data(), drainBlock.channels, drainBlock.clipped,
-                          drainBlock.raw.data());
+                          drainBlock.raw.data(), drainBlock.channels > 1 ? drainBlock.rawRight.data() : nullptr);
     if ((session & 1u) != 0 && overflowGeneration.load() == session)
     {
         learnGeneration.fetch_add (1);
@@ -299,11 +301,13 @@ void DoppelgangerProcessor::timerCallback()
         {
             nextConvergeCheck = sec + 1.0f;
             dop::LearnedProfile snap;
+            float recentShift = std::numeric_limits<float>::quiet_NaN();
             {
                 const juce::ScopedLock sl (stateLock);
                 snap = learner.finish();
+                recentShift = learner.recentLoudnessShift (dop::ConvergenceTracker::kRecentSeconds);
             }
-            enough = convergence.update (snap);
+            enough = convergence.update (snap, recentShift);
         }
         if (enough)
         {
@@ -457,12 +461,12 @@ void DoppelgangerProcessor::finishLearning()
         p = learner.finish();
     }
     const juce::ScopedLock sl (stateLock);
-    auto captured = learner.takeCapturedAudio();
+    auto captured = learner.takeCapturedChannels();
     if (p.valid && p.speechSeconds >= kMinLearnSeconds)
     {
         info.profile = p;
         info.message = {};
-        calibAudio = std::make_shared<const std::vector<float>> (std::move (captured));
+        calibAudio = std::make_shared<const dop::CapturedAudio> (std::move (captured));
         storedCalibration = {};
         info.calibration = {};
         calibDb = 0.0f;
@@ -735,7 +739,7 @@ void DoppelgangerProcessor::CalibrationWorker::run()
         Result res;
         res.id = r.id;
         res.isDeesser = r.deesser;
-        if (r.deesser) res.deesser = dop::autopilot::chooseDeesser (*r.audio, r.fs, r.params, r.bank, &cancel);
+        if (r.deesser) res.deesser = dop::autopilot::chooseDeesser (r.audio->mono(), r.fs, r.params, r.bank, &cancel);
         else res.calibration = dop::autopilot::calibrate (*r.audio, r.fs, r.params, r.bank, r.eqDeltaDb, r.learnedLowcutHz, &cancel);
         const juce::ScopedLock sl (lock);
         if (! hasRequest)   // sonst ist das Ergebnis schon veraltet
@@ -808,6 +812,7 @@ void DoppelgangerProcessor::getStateInformation (juce::MemoryBlock& destData)
                 juce::StringArray keyText;   // fuer welche Einstellungen gemessen wurde
                 for (float v : calibratedKey) keyText.add (juce::String (v, 6));
                 pt.setProperty ("calibKey", keyText.joinIntoString (" "), nullptr);
+                pt.setProperty ("calibPerChannel", 1, nullptr);   // Nachmessung kanalgetrennt gerechnet
             }
             state.appendChild (pt, nullptr);
         }
@@ -877,6 +882,9 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
                 keyText.addTokens (pt.getProperty ("calibKey").toString(), " ", "");
                 keyText.removeEmptyStrings();
                 for (auto& t : keyText) loadedKey.push_back (t.getFloatValue());
+                // Aeltere Stereo-Nachmessungen liefen einkanalig mit 0,5*(L+R) und konnten bei starkem Spitzenschutz
+                // vom Ausgang abweichen: Wert behalten, aber nicht als geprueft fuehren (wie Projekte aus 1.8/1.9)
+                if (p.loudnessChannels > 1 && ! pt.hasProperty ("calibPerChannel")) loadedKey.clear();
                 loadedCalib.ok = std::isfinite (loadedCalib.calibDb) && std::abs (loadedCalib.calibDb) <= dop::Engine::kMaxCalibDb
                                  && std::isfinite (loadedCalib.outLufs) && std::isfinite (loadedCalib.peakDb);
                 if (! loadedCalib.ok) loadedCalib = {};
@@ -892,13 +900,15 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
         // Derselbe Zustand noch einmal geladen (Undo, Preset-Vergleich, Host-Rundreise): gelerntes Audio und
         // ausstehende Autopilot-Schritte behalten, sonst gilt das Profil als aus einem Projekt geladen.
         bool sameProfile = p.valid && info.profile.valid && std::abs (p.loudnessLufs - info.profile.loudnessLufs) < 1e-3f
-                           && std::abs (p.pitchHz - info.profile.pitchHz) < 1e-3f;
+                           && std::abs (p.pitchHz - info.profile.pitchHz) < 1e-3f && p.loudnessChannels == info.profile.loudnessChannels;
         for (size_t k = 0; sameProfile && k < p.curveDb.size(); ++k)   // gespeichert mit drei Nachkommastellen
             sameProfile = std::abs (p.curveDb[k] - info.profile.curveDb[k]) < 1e-3f;
         info.profile = p;
         info.message = {};
         if (! sameProfile)
         {
+            ++calibRequestId;   // laufende Nachmessung/De-Esser-Wahl gehoert zum alten Profil: Ergebnis verwerfen
+            info.calibrationPending = false;
             calibAudio.reset();
             autoApplyPending = false;
             deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;

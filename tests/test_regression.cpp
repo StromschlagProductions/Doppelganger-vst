@@ -169,6 +169,41 @@ void learningTests()
         dop::ConvergenceTracker tracker;
         CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (tracker.update (p));
         tracker.reset(); CHECK (! tracker.update (p));
+        // Werden die letzten Sekunden deutlich lauter oder leiser als das Material davor, gilt das Profil nicht als stabil
+        tracker.reset();
+        for (int i = 0; i < 6; ++i) CHECK (! tracker.update (p, 2.0f));
+        CHECK (! tracker.update (p, 0.5f)); CHECK (! tracker.update (p, -0.5f));
+        CHECK (tracker.update (p, 0.5f));
+        CHECK (! tracker.update (p, -1.5f));
+        tracker.reset();   // ohne messbare Sprache im Fenster (100) nie stabil; NaN = nicht pruefen
+        for (int i = 0; i < 6; ++i) CHECK (! tracker.update (p, 100.0f));
+        tracker.reset();
+        for (int i = 0; i < 3; ++i) CHECK (! tracker.update (p, std::numeric_limits<float>::quiet_NaN()));
+        CHECK (tracker.update (p, std::numeric_limits<float>::quiet_NaN()));
+        {   // 10 s leise, dann 6 s um 6 dB lauter
+            const double rfs = 48000; auto v1 = voice (rfs, 10.0), v2 = voice (rfs, 6.0);
+            for (auto& s2 : v2) s2 *= 2.0f;
+            dop::Learner R; R.prepare (rfs);
+            CHECK (std::isnan (R.recentLoudnessShift (6.0)));   // noch kein Material davor
+            R.push (v1.data(), (int) v1.size());
+            const float quiet = R.recentLoudness (6.0);
+            CHECK (std::abs (R.recentLoudnessShift (6.0)) < 0.5f);   // gleichmaessig
+            R.push (v2.data(), (int) v2.size());
+            const float loud = R.recentLoudness (6.0);
+            CHECK (std::abs (loud - quiet - 6.02f) < 0.3f && R.finish().loudnessLufs < loud - 1.0f);
+            // gegen das Material davor, nicht gegen das Mittel einschliesslich des Fensters: voller Sprung
+            CHECK (std::abs (R.recentLoudnessShift (6.0) - 6.02f) < 0.5f);
+            CHECK (R.recentLoudnessShift (6.0) > loud - R.finish().loudnessLufs + 1.0f);
+            dop::Learner E; E.prepare (rfs); CHECK (E.recentLoudness (6.0) <= -99.0f);   // ohne Material
+            std::vector<float> silence ((size_t) (8 * rfs), 0.0f);
+            R.push (silence.data(), (int) silence.size());
+            CHECK (R.recentLoudnessShift (6.0) >= 99.0f);   // Fenster ohne Sprache: nie stabil
+        }
+        {   // Mitschnitt mit ungleich langen Kanaelen: mono() liest nie ueber das Ende
+            dop::CapturedAudio c; c.left = { 1.0f, 1.0f, 1.0f }; c.right = { 0.0f };
+            const auto m = c.mono();
+            CHECK (m.size() == 3 && m[0] == 0.5f && m[2] == 1.0f);
+        }
         p.curveDb[0] = std::numeric_limits<float>::quiet_NaN(); CHECK (! dop::isValidProfile (p));
     }
 }
@@ -597,6 +632,71 @@ void autopilotTests()
             if (std::getenv ("DOP_VERBOSE")) std::printf ("Lowcut %.0f Hz: Nachmessung %.2f, tatsaechlich %.2f LUFS (%+.2f dB)\n", newLowcut, c.outLufs, measured, c.calibDb);
             CHECK (c.ok && std::abs (c.outLufs + 23.0f) <= 0.05f && std::abs (measured + 23.0f) <= 0.12f);
         }
+        // Stereo: Die Nachmessung rechnet beide Kanaele wie der Live-Pfad (Kanalenergien addiert, Spitzenschutz
+        // gekoppelt). Frueher wurde 0,5*(L+R) einkanalig gerechnet; bei L=R und hohem Ziel lag der Ausgang dann
+        // fast 1 LU ueber der Nachmessung. Mitschnitt ueber den Learner wie im Prozessor.
+        // Kurze, starke Plosiv-Spitzen, damit der Spitzenschutz bei -16 LUFS deutlich (mehrere dB) eingreift.
+        if (fs == 48000.)
+            for (float rightGain : { 1.0f, -0.5f, 0.0f, 1.5f })
+            {
+                std::vector<float> xs = x;
+                for (size_t i = 0; i < xs.size(); ++i)
+                {
+                    const double t = std::fmod (i / fs, 0.35);
+                    if (t < 0.004) xs[i] += (float) (0.9 * std::exp (-t / 0.001) * std::sin (2.0 * dop::kPi * 150.0 * t));
+                }
+                std::vector<float> xr (x.size());
+                for (size_t i = 0; i < x.size(); ++i) xr[i] = rightGain * xs[i];
+                dop::Learner S; S.prepare (fs); S.beginCapture (40);
+                std::vector<double> pw (x.size());
+                {
+                    const auto ks = dop::kWeightShelf (fs), kh = dop::kWeightHighPass (fs);
+                    dop::BiquadState a1, a2, b1, b2;
+                    for (size_t i = 0; i < x.size(); ++i)
+                    {
+                        const double kl = a2.process (kh, a1.process (ks, (double) xs[i])), kr = b2.process (kh, b1.process (ks, (double) xr[i]));
+                        pw[i] = kl * kl + kr * kr;
+                    }
+                }
+                std::vector<float> tap (x.size());
+                for (size_t i = 0; i < x.size(); ++i) tap[i] = 0.5f * (xs[i] + xr[i]);
+                for (size_t o = 0; o < x.size(); o += 512)
+                {
+                    const int n = (int) std::min<size_t> (512, x.size() - o);
+                    S.push (tap.data() + o, n, pw.data() + o, 2, 0, xs.data() + o, xr.data() + o);
+                }
+                const auto cap = S.takeCapturedChannels();
+                CHECK (cap.stereo() && cap.size() == x.size() && cap.right.size() == x.size());
+                CHECK (std::equal (cap.left.begin(), cap.left.end(), xs.begin()) && std::equal (cap.right.begin(), cap.right.end(), xr.begin()));
+                for (float target : { -23.f, -16.f })
+                {
+                    dop::EngineParams p; p.leveler = 0.5f; p.deess = 0.25f; p.deessOn = true; p.targetLufs = target;
+                    p.rideOffsetDb = prof.typicalOffsetDb;
+                    const auto c = dop::autopilot::calibrate (cap, fs, p, bank, eqd, 80.0f);
+                    const auto old = dop::autopilot::calibrate (cap.mono(), fs, p, bank, eqd, 80.0f);   // frueherer Weg
+                    CHECK (c.ok && std::abs (c.outLufs - target) <= 0.05f && c.peakDb <= dop::Engine::kPeakCeilingDb + 0.01f);
+                    // Gegenprobe wie im Prozessor: gelernte Lautheit je Kanal, Zweikanal-Engine, Ausgang stereo gemessen
+                    const float learned = dop::autopilot::integratedLoudness (cap, fs, 80.0f);
+                    dop::Engine e; e.prepare (fs); auto q = p; q.takeLufs = learned - 10.0f * std::log10 (2.0f) + eqd;
+                    q.calibDb = c.calibDb; q.peakGuard = true;
+                    e.setParams (q); e.setBank (bank); e.reset();
+                    auto yl = cap.left, yr = cap.right;
+                    for (size_t o = 0; o < yl.size(); o += 300)
+                    {
+                        float* pp[] = { yl.data() + o, yr.data() + o };
+                        e.process (pp, 2, (int) std::min<size_t> (300, yl.size() - o), nullptr);
+                    }
+                    dop::CapturedAudio y; y.left = yl; y.right = yr;
+                    const float measured = dop::autopilot::integratedLoudness (y, fs);
+                    if (std::getenv ("DOP_VERBOSE")) std::printf ("Stereo R=%.1f*L Ziel %.0f: Nachmessung %.2f, tatsaechlich %.2f LUFS, Schutz %.1f dB (einkanalig: %+.2f statt %+.2f dB)\n", rightGain, target, c.outLufs, measured, c.guardDb, old.calibDb, c.calibDb);
+                    CHECK (std::abs (measured - target) <= 0.12f && std::abs (measured - c.outLufs) <= 0.12f);
+                    // True Peak ueber beide Kanaele (bei R=1,5*L liegt er rechts)
+                    const float tpL = dop::autopilot::truePeakDb (yl), tpR = dop::autopilot::truePeakDb (yr);
+                    if (std::getenv ("DOP_VERBOSE")) std::printf ("  TP Nachmessung %.2f, Gegenprobe L %.2f R %.2f, Spitze %.2f\n", c.truePeakDb, tpL, tpR, c.peakDb);
+                    CHECK (std::abs (c.truePeakDb - std::max (tpL, tpR)) <= 0.1f);
+                    if (rightGain > 1.0f) CHECK (tpR > tpL + 1.0f);
+                }
+            }
         // Abbruch und zu wenig Material
         std::atomic<bool> stop { true };
         CHECK (! dop::autopilot::calibrate (audio, fs, dop::EngineParams {}, bank, eqd, 80.0f, &stop).ok);

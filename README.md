@@ -14,7 +14,7 @@ aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbea
 
 Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
 
-**Aktuelle Version: 2.1.** Der Autopilot stellt jetzt auch den De-Esser ein: konservativ, nur aus sicher erkannten Zischlauten; unauffällige Stimmen bleiben unbearbeitet. Seit 2.0 ist die Prüfung verlässlich, auch nach Speichern/Laden und nach Lowcut-Änderungen, mit True-Peak-Angabe. **Seit 1.8: Autopilot.** Lernen, fertig: Mit **AUTO** stellt das Plugin Angleichung, Lowcut und De-Esser selbst ein, misst die Lautheit der ganzen Kette nach, schützt die Spitzen bei −1 dBFS und meldet, ob alles passt. Seit 1.7 setzt unter dem EQ-Schalter **RESET** alle fünf Bänder auf 0 dB, Standardfrequenz und Q = 1 zurück. Das Klangbild ist klarer beschriftet: Referenz, gelernter Eingang, Korrektur und Ausgang live haben je ein Farbmuster, der EQ zeigt seinen Zustand. Seit 1.4.1 werden Mono und Stereo kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
+**Aktuelle Version: 2.2.** Stereo-Spuren werden jetzt kanalrichtig nachgemessen, und das Lernen endet erst, wenn auch die Lautheit stabil erfasst ist (frühestens nach 20 s Sprache). Seit 2.1 stellt der Autopilot auch den De-Esser ein: konservativ, nur aus sicher erkannten Zischlauten; unauffällige Stimmen bleiben unbearbeitet. Seit 2.0 ist die Prüfung verlässlich, auch nach Speichern/Laden und nach Lowcut-Änderungen, mit True-Peak-Angabe. **Seit 1.8: Autopilot.** Lernen, fertig: Mit **AUTO** stellt das Plugin Angleichung, Lowcut und De-Esser selbst ein, misst die Lautheit der ganzen Kette nach, schützt die Spitzen bei −1 dBFS und meldet, ob alles passt. Seit 1.7 setzt unter dem EQ-Schalter **RESET** alle fünf Bänder auf 0 dB, Standardfrequenz und Q = 1 zurück. Das Klangbild ist klarer beschriftet: Referenz, gelernter Eingang, Korrektur und Ausgang live haben je ein Farbmuster, der EQ zeigt seinen Zustand. Seit 1.4.1 werden Mono und Stereo kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
 
 [Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/2.0.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
@@ -81,8 +81,8 @@ gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darun
 ## Bedienung
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
-2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich das Klangbild nicht mehr verändert, und hört dann von allein
-   auf (frühestens nach 10, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
+2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich Klangbild und Lautstärke nicht mehr verändern, und hört dann von allein
+   auf (frühestens nach 20, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
 3. Das Plugin zeigt groß an, welche Stimme es erkannt hat (**ERKANNT: Tief (Mann) · 118 Hz**). Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
    darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
 4. Mit **AUTO** (Standard) ist damit alles erledigt. Der Autopilot setzt Angleichung, Lowcut und De-Esser, misst die Lautheit nach und zeigt

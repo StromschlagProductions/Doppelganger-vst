@@ -16,6 +16,7 @@
 #include <complex>
 #include <cstring>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -249,6 +250,27 @@ inline bool isValidProfile (const LearnedProfile& p)
 //  Learner: misst Langzeit-Spektrum (wie tools/make_reference_curves.py) und Tonhoehe
 //  Laeuft NICHT im Audio-Thread.
 //==============================================================================
+// Autopilot-Mitschnitt fuer die Nachmessung: jeder Kanal einzeln (Eingang vor dem Lowcut), damit die Nachmessung
+// Lautheit (Kanalenergien addiert) und den kanalgekoppelten Spitzenschutz genau wie im Live-Pfad nachrechnet.
+// right leer: Mono.
+struct CapturedAudio
+{
+    std::vector<float> left, right;
+    bool stereo() const { return ! right.empty(); }
+    int channels() const { return stereo() ? 2 : 1; }
+    size_t size() const { return left.size(); }
+    bool empty() const { return left.empty(); }
+    // Analyse-Monosignal (wie beim Lernen): 0,5 * (L + R)
+    std::vector<float> mono() const
+    {
+        if (! stereo()) return left;
+        std::vector<float> m (left.size());
+        const size_t both = std::min (left.size(), right.size());   // gleich lang erwartet; sonst nie ueber das Ende lesen
+        for (size_t i = 0; i < m.size(); ++i) m[i] = i < both ? 0.5f * (left[i] + right[i]) : left[i];
+        return m;
+    }
+};
+
 class Learner
 {
 public:
@@ -330,6 +352,8 @@ public:
         levelHist.fill (0);
         clipped = 0;
         audio.clear();
+        audioRight.clear();
+        captureChannels = 0;
     }
 
     // Autopilot: die gelernten Sekunden (Mono-Eingang vor dem Lowcut) mitschreiben, damit der Prozessor die ganze Kette
@@ -337,25 +361,65 @@ public:
     void beginCapture (double seconds)
     {
         audio.clear();
+        audioRight.clear();
+        captureChannels = 0;
         audioCap = (size_t) std::clamp (seconds * fs, 0.0, (double) kMaxCaptureSamples);
         audio.reserve (audioCap);
     }
-    std::vector<float> takeCapturedAudio() { auto out = std::move (audio); audio = {}; audioCap = 0; return out; }
-    static constexpr size_t kMaxCaptureSamples = 2400000;   // 50 s bei 48 kHz, 12,5 s bei 192 kHz
+    // Mono-Mitschnitt (bei Stereo das Analyse-Monosignal 0,5 * (L + R))
+    std::vector<float> takeCapturedAudio() { return takeCapturedChannels().mono(); }
+    // Mitschnitt kanalgetrennt, fuer die Nachmessung
+    CapturedAudio takeCapturedChannels()
+    {
+        CapturedAudio out;
+        out.left = std::move (audio);
+        out.right = std::move (audioRight);
+        audio = {}; audioRight = {}; audioCap = 0; captureChannels = 0;
+        return out;
+    }
+    static constexpr size_t kMaxCaptureSamples = 2400000;   // je Kanal: 50 s bei 48 kHz, 12,5 s bei 192 kHz
 
     // Mono spectral/pitch tap, with optional summed per-channel K-weighted power.
     // Loudness must not use the squared stereo downmix: that loses side-channel energy.
-    // captureSource: was fuer die Nachmessung mitgeschnitten wird (der Eingang vor dem Lowcut); ohne Angabe x
+    // captureSource: was fuer die Nachmessung mitgeschnitten wird (der Eingang vor dem Lowcut); ohne Angabe x.
+    // captureRight: rechter Kanal davon (captureSource ist dann links); ohne Angabe Mono.
     void push (const float* x, int n, const double* channelPower = nullptr, int channels = 1, int clippedInBlock = 0,
-               const float* captureSource = nullptr)
+               const float* captureSource = nullptr, const float* captureRight = nullptr)
     {
         loudnessChannels = channelPower ? std::clamp (channels, 1, 2) : 1;
         clipped += std::max (0, clippedInBlock);
+        const bool stereoBlock = captureSource != nullptr && captureRight != nullptr;
+        if (audio.size() < audioCap)
+        {
+            if (captureChannels == 0)
+            {
+                captureChannels = stereoBlock ? 2 : 1;
+                if (stereoBlock) audioRight.reserve (audioCap);
+            }
+            else if (captureChannels == 2 && ! stereoBlock)
+            {
+                // Kanalzahl hat gewechselt: auf das Analyse-Monosignal zurueckfallen (eindeutig, nie falsches Stereo)
+                for (size_t i = 0; i < audio.size(); ++i) audio[i] = 0.5f * (audio[i] + audioRight[i]);
+                audioRight = {};
+                captureChannels = 1;
+            }
+        }
+        auto clean = [] (float s) { return std::isfinite (s) ? s : 0.0f; };
         for (int i = 0; i < n; ++i)
         {
             const double v = std::isfinite (x[i]) ? x[i] : 0.0;
             if (audio.size() < audioCap)
-                audio.push_back (captureSource != nullptr ? (std::isfinite (captureSource[i]) ? captureSource[i] : 0.0f) : (float) v);
+            {
+                if (captureChannels == 2)
+                {
+                    audio.push_back (clean (captureSource[i]));
+                    audioRight.push_back (clean (captureRight[i]));
+                }
+                else if (stereoBlock)
+                    audio.push_back (0.5f * (clean (captureSource[i]) + clean (captureRight[i])));
+                else
+                    audio.push_back (captureSource != nullptr ? clean (captureSource[i]) : (float) v);
+            }
             // Spektrum
             buf[(size_t) (filled % frameLen)] = v;
             ++filled;
@@ -492,6 +556,27 @@ public:
     }
 
     // Integrierte Lautheit nach BS.1770 aus Blockleistungen (absolutes Tor -70, relatives Tor -10 LU)
+    // Integrierte Lautheit nur der letzten Sekunden (gleiches Gating, auf das Fenster bezogen). Nur Message-Thread.
+    float recentLoudness (double seconds) const
+    {
+        const size_t n = std::min (blocks.size(), (size_t) std::max (1.0, seconds * 10.0));   // Bloecke im 100-ms-Raster
+        const std::vector<double> last (blocks.end() - (long) n, blocks.end());
+        return integratedLoudness (last);
+    }
+
+    // Wird die Spur gerade lauter oder leiser? Lautheit der letzten Sekunden gegen alles davor (ohne das Fenster,
+    // sonst verduennt es den Unterschied). NaN: noch kein Material davor. Ohne messbare Sprache in einem der beiden
+    // Teile ein grosser Wert, damit das nie als stabil gilt. Nur Message-Thread.
+    float recentLoudnessShift (double seconds) const
+    {
+        const size_t n = (size_t) std::max (1.0, seconds * 10.0);
+        if (blocks.size() <= n) return std::numeric_limits<float>::quiet_NaN();
+        const std::vector<double> earlier (blocks.begin(), blocks.end() - (long) n), last (blocks.end() - (long) n, blocks.end());
+        const float e = integratedLoudness (earlier), r = integratedLoudness (last);
+        if (e <= -70.0f || r <= -70.0f) return 100.0f;
+        return r - e;
+    }
+
     static float integratedLoudness (const std::vector<double>& blockPow)
     {
         auto lufs = [] (double pw) { return -0.691 + 10.0 * std::log10 (pw + 1e-20); };
@@ -587,8 +672,9 @@ private:
     static constexpr int kHistOffsetDb = 140;      // Frame-Pegel -140..+9 dBFS in 1-dB-Klassen
     std::array<int64_t, 150> levelHist {};
     int64_t clipped = 0;
-    std::vector<float> audio;
+    std::vector<float> audio, audioRight;   // Mitschnitt; audio ist bei Stereo der linke Kanal
     size_t audioCap = 0;
+    int captureChannels = 0;                 // 0: noch nichts mitgeschnitten
 };
 
 //==============================================================================
@@ -710,6 +796,8 @@ struct ConvergenceTracker
     static constexpr double kCurveTolDb = 0.35;   // mittlere Abweichung zum Stand von vor etwa 1 s
     static constexpr double kPitchTol = 0.06;     // 6 %
     static constexpr double kLoudTolLu = 0.5;
+    static constexpr double kRecentTolLu = 1.0;   // die letzten Sekunden duerfen so weit vom Material davor abweichen
+    static constexpr double kRecentSeconds = 6.0;
     static constexpr int kNeeded = 3;             // so oft hintereinander stabil
 
     LearnedProfile prev;
@@ -718,8 +806,10 @@ struct ConvergenceTracker
 
     void reset() { prev = LearnedProfile(); stable = 0; lastCurveDist = 99.0; }
 
-    // true, wenn das Profil seit mehreren Pruefungen stabil ist
-    bool update (const LearnedProfile& p)
+    // true, wenn das Profil seit mehreren Pruefungen stabil ist.
+    // recentShiftLu: Learner::recentLoudnessShift (kRecentSeconds); NaN = nicht pruefen. Wird die Spur gerade deutlich
+    // lauter oder leiser, ist die gelernte Lautheit noch nicht repraesentativ, auch wenn sie sich kaum bewegt.
+    bool update (const LearnedProfile& p, float recentShiftLu = std::numeric_limits<float>::quiet_NaN())
     {
         if (! p.valid) return false;
         if (prev.valid)
@@ -728,7 +818,8 @@ struct ConvergenceTracker
             const bool pitchOk = (prev.pitchHz <= 0 || p.pitchHz <= 0) ? true
                                  : std::abs (p.pitchHz - prev.pitchHz) / prev.pitchHz < kPitchTol;
             const bool loudOk = std::abs (p.loudnessLufs - prev.loudnessLufs) < kLoudTolLu;
-            stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk) ? stable + 1 : 0;
+            const bool recentOk = std::isnan (recentShiftLu) || std::abs (recentShiftLu) < kRecentTolLu;
+            stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk && recentOk) ? stable + 1 : 0;
         }
         prev = p;
         return stable >= kNeeded;
@@ -1029,6 +1120,7 @@ public:
         ride1 = ride2 = 0.0;
         staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
         gainStatic = std::pow (10.0, staticDb / 20.0);
+        staticSnapPending = true;   // die Kanalzahl steht erst beim naechsten process() fest
         gainRide = 1.0;
         guardGain = 1.0;
         listenMix = params.deessListen ? 1.0 : 0.0;
@@ -1120,6 +1212,14 @@ public:
             channelLoudnessDb = 10.0 * std::log10 ((double) numCh);
             msK = outMs = 0.0;
             clearIntegrated();
+        }
+        if (staticSnapPending)
+        {
+            // Nach reset() sofort auf der richtigen Grundverstaerkung beginnen, jetzt mit bekannter Kanalzahl
+            // (sonst begann eine frische Stereo-Instanz fuer etwa 50 ms 3 dB zu laut).
+            staticSnapPending = false;
+            staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;
+            gainStatic = std::pow (10.0, staticDb / 20.0);
         }
         if (intResetRequest.exchange (false)) clearIntegrated();
         if (levelerResetRequest.exchange (false)) { ride1 = ride2 = 0.0; gainRide = 1.0; msK = 0.0; }
@@ -1359,6 +1459,7 @@ private:
 
     double fs = 48000.0;
     int activeChannels = 1;
+    bool staticSnapPending = false;
     double channelLoudnessDb = 0.0;
     EngineParams params;
     FineEq fineEq;
@@ -1432,25 +1533,34 @@ inline float suggestLowcut (float pitchHz, float learnedWithLowcutHz)
     return std::clamp (std::max (hz, base), base, std::max (base, kMaxLowcut));
 }
 
-// Integrierte Lautheit (BS.1770) eines Mono-Signals, optional nach einem Lowcut (24 dB/Oktave wie in der Engine)
-inline float integratedLoudness (const std::vector<float>& x, double fs, float lowcutHz = 0.0f)
+// Integrierte Lautheit (BS.1770) von ein oder zwei Kanaelen (Energien addiert, wie im Lernen und in der Engine),
+// optional nach einem Lowcut (24 dB/Oktave wie in der Engine). Alle Kanaele gleich lang.
+inline float integratedLoudness (const std::vector<float>* const* chans, int numCh, double fs, float lowcutHz = 0.0f)
 {
+    numCh = std::clamp (numCh, 0, 2);
+    if (numCh == 0) return -100.0f;
     fs = validSampleRate (fs);
     const Biquad ks = kWeightShelf (fs), kh = kWeightHighPass (fs);
     const bool lc = lowcutHz > 20.5f && std::isfinite (lowcutHz);
     const Biquad lc1 = lc ? highPass (fs, lowcutHz, 0.5412) : Biquad {}, lc2 = lc ? highPass (fs, lowcutHz, 1.3066) : Biquad {};
-    BiquadState s1, s2, l1, l2;
+    BiquadState s1[2], s2[2], l1[2], l2[2];
     const int sub = std::max (1, (int) std::lround (0.1 * fs));
+    size_t len = chans[0]->size();
+    for (int c = 1; c < numCh; ++c) len = std::min (len, chans[c]->size());
     std::vector<double> blocks;
-    blocks.reserve (x.size() / (size_t) sub + 1);
+    blocks.reserve (len / (size_t) sub + 1);
     std::array<double, 4> q {};
     double acc = 0; int n = 0; int64_t subs = 0;
-    for (float v : x)
+    for (size_t i = 0; i < len; ++i)
     {
-        double in = std::isfinite (v) ? v : 0.0f;
-        if (lc) in = l2.process (lc2, l1.process (lc1, in));
-        const double k = s2.process (kh, s1.process (ks, in));
-        acc += k * k;
+        for (int c = 0; c < numCh; ++c)
+        {
+            const float v = (*chans[c])[i];
+            double in = std::isfinite (v) ? v : 0.0f;
+            if (lc) in = l2[c].process (lc2, l1[c].process (lc1, in));
+            const double k = s2[c].process (kh, s1[c].process (ks, in));
+            acc += k * k;
+        }
         if (++n >= sub)
         {
             q[(size_t) (subs % 4)] = acc / n; acc = 0; n = 0;
@@ -1458,6 +1568,18 @@ inline float integratedLoudness (const std::vector<float>& x, double fs, float l
         }
     }
     return Learner::integratedLoudness (blocks);
+}
+
+inline float integratedLoudness (const std::vector<float>& x, double fs, float lowcutHz = 0.0f)
+{
+    const std::vector<float>* c[] = { &x };
+    return integratedLoudness (c, 1, fs, lowcutHz);
+}
+
+inline float integratedLoudness (const CapturedAudio& a, double fs, float lowcutHz = 0.0f)
+{
+    const std::vector<float>* c[] = { &a.left, &a.right };
+    return integratedLoudness (c, a.channels(), fs, lowcutHz);
 }
 
 // True Peak (dBTP) nach dem Verfahren aus BS.1770 Anhang 2: 4-fach ueberabgetastet, hier mit einem
@@ -1512,23 +1634,29 @@ struct Calibration
 // Rechnet die gelernte Passage durch die komplette Kette (Angleich-EQ, Feinabstimmung, De-Esser, Grundverstaerkung,
 // Leveler) und misst die integrierte Lautheit am Ausgang nach. Die Abweichung zum Ziel wird als calibDb
 // zurueckgegeben, so landet die Spur auf dem Ziel, auch wenn De-Esser und Leveler die Lautheit etwas verschieben.
-// audio: Mono-Eingang VOR dem Lowcut, so dass auch ein geaenderter Lowcut (p.lowcutHz) mitgerechnet wird.
+// audio: Eingang VOR dem Lowcut, so dass auch ein geaenderter Lowcut (p.lowcutHz) mitgerechnet wird. Bei Stereo
+// wird mit beiden Kanaelen gerechnet wie im Live-Pfad: Kanalenergien addiert, Spitzenschutz kanalgekoppelt.
 // learnedLowcutHz: Lowcut, mit dem gelernt wurde. Die gelernte Lautheit (und damit die vorausberechnete
 // Grundverstaerkung im Prozessor) bezieht sich darauf. predictedEqDeltaDb: die Lautheitsschaetzung des EQs.
-inline Calibration calibrate (const std::vector<float>& audio, double fs, EngineParams p,
+inline Calibration calibrate (const CapturedAudio& audio, double fs, EngineParams p,
                               const std::array<Biquad, kBands>& bank, float predictedEqDeltaDb, float learnedLowcutHz,
                               const std::atomic<bool>* cancel = nullptr)
 {
     Calibration r;
     fs = validSampleRate (fs);
     p.peakGuard = true;
-    if (audio.size() < (size_t) (2.0 * fs)) return r;
+    const int numCh = audio.channels();
+    if (audio.size() < (size_t) (2.0 * fs) || (audio.stereo() && audio.right.size() != audio.size())) return r;
     const float inLufs = integratedLoudness (audio, fs, learnedLowcutHz);   // wie beim Lernen gemessen
     if (inLufs <= -70.0f) return r;
     p.deessListen = false;   // p.lowcutHz bleibt: der aktuelle Lowcut wirkt auf den ungefilterten Mitschnitt
-    p.takeLufs = inLufs + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
+    // wie im Prozessor: gelernte Lautheit je Kanal; die Engine rechnet die Kanalzahl selbst wieder dazu
+    p.takeLufs = inLufs - (float) (10.0 * std::log10 ((double) numCh))
+                 + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
     p.calibDb = 0.0f;
-    std::vector<float> buf (4096), out (audio.size());
+    const std::vector<float>* src[] = { &audio.left, &audio.right };
+    std::vector<float> buf[2] = { std::vector<float> (4096), std::vector<float> (numCh > 1 ? 4096 : 0) };
+    std::vector<float> out[2] = { std::vector<float> (audio.size()), std::vector<float> (numCh > 1 ? audio.size() : 0) };
     auto engine = std::make_unique<Engine>();
     // Der Leveler gleicht einen Teil jeder Pegelaenderung wieder aus. Deshalb wird die Wirkung der Nachkorrektur
     // gemessen (Sekantenverfahren) statt angenommen; nach zwei bis vier Durchlaeufen sitzt das Ziel auf 0,03 LU.
@@ -1542,15 +1670,22 @@ inline Calibration calibrate (const std::vector<float>& audio, double fs, Engine
         engine->reset();   // Filterbank sofort, ohne Ueberblendung
         double peak = 0;
         float guard = 0.0f;
-        for (size_t off = 0; off < audio.size(); off += buf.size())
+        for (size_t off = 0; off < audio.size(); off += buf[0].size())
         {
             if (cancel != nullptr && cancel->load (std::memory_order_relaxed)) return {};
-            const int n = (int) std::min (buf.size(), audio.size() - off);
-            std::copy (audio.begin() + (long) off, audio.begin() + (long) off + n, buf.begin());
-            float* ptr[] = { buf.data() };
-            engine->process (ptr, 1, n, nullptr);
-            for (int i = 0; i < n; ++i) peak = std::max (peak, (double) std::abs (buf[(size_t) i]));
-            std::copy (buf.begin(), buf.begin() + n, out.begin() + (long) off);
+            const int n = (int) std::min (buf[0].size(), audio.size() - off);
+            float* ptr[2] = {};
+            for (int c = 0; c < numCh; ++c)
+            {
+                std::copy (src[c]->begin() + (long) off, src[c]->begin() + (long) off + n, buf[c].begin());
+                ptr[c] = buf[c].data();
+            }
+            engine->process (ptr, numCh, n, nullptr);
+            for (int c = 0; c < numCh; ++c)
+            {
+                for (int i = 0; i < n; ++i) peak = std::max (peak, (double) std::abs (buf[c][(size_t) i]));
+                std::copy (buf[c].begin(), buf[c].begin() + n, out[c].begin() + (long) off);
+            }
             guard = std::max (guard, engine->meterGuardDb.load());
         }
         const float outLufs = engine->meterIntLufs.load();
@@ -1559,9 +1694,15 @@ inline Calibration calibrate (const std::vector<float>& audio, double fs, Engine
         r.peakDb = (float) (20.0 * std::log10 (peak + 1e-12));
         r.guardDb = guard;
         const float err = outLufs - p.targetLufs;
+        auto measureTruePeak = [&]
+        {
+            float tp = truePeakDb (out[0]);
+            if (numCh > 1) tp = std::max (tp, truePeakDb (out[1]));
+            return tp;
+        };
         if (std::abs (err) < 0.03f || pass == kPasses - 1)
         {
-            r.truePeakDb = truePeakDb (out);
+            r.truePeakDb = measureTruePeak();
             break;   // letzter Wert ist immer der nachgemessene
         }
         float slope = 1.0f;
@@ -1569,12 +1710,22 @@ inline Calibration calibrate (const std::vector<float>& audio, double fs, Engine
             slope = std::clamp ((err - prevErr) / (p.calibDb - prevCalib), 0.2f, 1.5f);
         prevCalib = p.calibDb; prevErr = err;
         const float next = std::clamp (p.calibDb - err / slope, -Engine::kMaxCalibDb, Engine::kMaxCalibDb);
-        if (next == p.calibDb) { r.truePeakDb = truePeakDb (out); break; }   // an der Grenze: mehr geht nicht
+        if (next == p.calibDb) { r.truePeakDb = measureTruePeak(); break; }   // an der Grenze: mehr geht nicht
         p.calibDb = next;
     }
     r.calibDb = p.calibDb;
     r.ok = true;
     return r;
+}
+
+// Mono-Variante
+inline Calibration calibrate (const std::vector<float>& audio, double fs, EngineParams p,
+                              const std::array<Biquad, kBands>& bank, float predictedEqDeltaDb, float learnedLowcutHz,
+                              const std::atomic<bool>* cancel = nullptr)
+{
+    CapturedAudio a;
+    a.left = audio;
+    return calibrate (a, fs, p, bank, predictedEqDeltaDb, learnedLowcutHz, cancel);
 }
 //==============================================================================
 //  Automatischer De-Esser: konservativ, nur aus sicher erkannten Zischlauten.
