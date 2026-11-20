@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "TestSupport.h"
+#include "SpeechSynth.h"
 #include <thread>
 #include <memory>
 #include <limits>
@@ -433,9 +434,76 @@ void autopilotProcessor()
     CHECK (c->getDisplayInfo().profile.clippedSamples > 100);
 }
 
+// Automatischer De-Esser im Prozessor: nach dem Lernen gewaehlt, danach Lautheit neu nachgemessen
+void deesserAutopilotProcessor()
+{
+    using DC = dop::autopilot::DeesserChoice;
+    constexpr double fs = 48000;
+    auto learnWith = [fs] (const SpeechOptions& o, bool autopilot)
+    {
+        auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (fs, 512);
+        if (! autopilot) p->apvts.getParameter ("autopilot")->setValueNotifyingHost (0.0f);
+        const auto x = synthSpeech (fs, 20.0, o);
+        p->startLearning();
+        juce::AudioBuffer<float> b (2, 512);
+        for (size_t off = 0; off < x.size(); off += 512)
+        {
+            const int n = (int) std::min ((size_t) 512, x.size() - off); b.setSize (2, n, false, false, true);
+            for (int c = 0; c < 2; ++c) std::copy_n (x.data() + off, n, b.getWritePointer (c));
+            process (*p, b); DoppelgangerProcessorTestAccess::tick (*p);
+        }
+        if (p->isLearning()) p->finishLearning();
+        p->waitForCalibration (30000);
+        return p;
+    };
+    auto param = [] (DoppelgangerProcessor& p, const char* id) { return p.apvts.getRawParameterValue (id)->load(); };
+
+    // Scharfe S-Laute: angewandt, Werte gesetzt, Lautheit danach mit diesen Werten geprueft
+    {
+        SpeechOptions o; o.sibDb = -3.0;
+        auto p = learnWith (o, true);
+        const auto i = p->getDisplayInfo();
+        CHECK (i.deesser.decision == DC::kApplied && i.deesser.amount > 0.0f);
+        CHECK (param (*p, "deessOn") > 0.5f && param (*p, "deess") == std::round (i.deesser.amount * 100.0f));
+        CHECK (std::abs (param (*p, "deessFreq") - i.deesser.freqHz) < 10.0f);
+        CHECK (i.calibrationCurrent && std::abs (i.calibration.outLufs + 23.0f) <= 0.05f);
+        // Speichern/Laden: Bericht bleibt erhalten, Einstellung ebenso
+        juce::MemoryBlock state; p->getStateInformation (state);
+        auto q = std::make_unique<DoppelgangerProcessor>(); q->prepareToPlay (fs, 512);
+        q->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*q);
+        const auto qi = q->getDisplayInfo();
+        CHECK (qi.deesser.decision == DC::kApplied && qi.deesser.events == i.deesser.events);
+        CHECK (std::abs (qi.deesser.amount - i.deesser.amount) < 1e-4f && param (*q, "deess") == param (*p, "deess"));
+        CHECK (qi.calibrationCurrent);
+    }
+    // Unauffaellige S-Laute: Staerke 0, De-Esser bleibt an, bearbeitet aber nichts
+    {
+        SpeechOptions o; o.sibDb = -18.0;
+        auto p = learnWith (o, true);
+        const auto i = p->getDisplayInfo();
+        CHECK (i.deesser.decision == DC::kNotNeeded && param (*p, "deess") == 0.0f && param (*p, "deessOn") > 0.5f);
+        CHECK (std::abs (param (*p, "deessFreq") - 5500.0f) < 1.0f);   // Frequenz unberuehrt
+        CHECK (i.calibrationCurrent);
+    }
+    // Fluestern: unzureichend, Einstellung unveraendert (Standard 25 %, 5,5 kHz)
+    {
+        SpeechOptions o; o.whisper = true; o.sibDb = 0.0;
+        auto p = learnWith (o, true);
+        const auto i = p->getDisplayInfo();
+        CHECK (i.deesser.decision == DC::kInsufficient && i.deesser.reason == DC::kNoVoicedSpeech);
+        CHECK (param (*p, "deess") == 25.0f && std::abs (param (*p, "deessFreq") - 5500.0f) < 1.0f);
+    }
+    // Autopilot aus: keine Analyse, nichts veraendert
+    {
+        SpeechOptions o; o.sibDb = 0.0;
+        auto p = learnWith (o, false);
+        CHECK (p->getDisplayInfo().deesser.decision == DC::kNone && param (*p, "deess") == 25.0f);
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
-    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor();
+    stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor(); deesserAutopilotProcessor();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

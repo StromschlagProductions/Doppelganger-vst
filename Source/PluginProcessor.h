@@ -76,6 +76,7 @@ public:
         bool calibrationCurrent = false;   // gilt fuer die aktuellen Einstellungen
         bool calibrationPending = false;   // Nachmessung laeuft
         bool canRecalibrate = false;       // gelerntes Audio liegt vor (nicht nach Projekt-Laden)
+        dop::autopilot::DeesserChoice deesser;   // was der Autopilot am De-Esser entschieden hat
     };
     DisplayInfo getDisplayInfo() const;
 
@@ -98,6 +99,7 @@ private:
     void updateTakeLoudness();          // Lautheit nach EQ + Feinabstimmung (Aufrufer haelt stateLock)
     int effectiveRegister() const;
     void applyAutopilotSettings();      // nach dem Lernen: Angleichung und Lowcut setzen (ohne stateLock aufrufen)
+    void applyDeesserChoice();          // nach der De-Esser-Analyse: Staerke/Frequenz setzen (ohne stateLock aufrufen)
     void updateCalibration();           // Nachmessung anstossen / Ergebnis uebernehmen (Message-Thread)
     std::vector<float> calibrationKey() const;
 
@@ -114,18 +116,25 @@ private:
             float eqDeltaDb = 0.0f;
             float learnedLowcutHz = 80.0f;
             uint64_t id = 0;
+            bool deesser = false;   // true: De-Esser waehlen statt Lautheit nachmessen
+        };
+        struct Result
+        {
+            dop::autopilot::Calibration calibration;
+            dop::autopilot::DeesserChoice deesser;
+            bool isDeesser = false;
+            uint64_t id = 0;
         };
         CalibrationWorker() : juce::Thread ("Doppelganger Nachmessung") {}
         ~CalibrationWorker() override { signalThreadShouldExit(); cancel = true; notify(); stopThread (4000); }
         void submit (Request r);
-        bool fetch (dop::autopilot::Calibration& out, uint64_t& id);
+        bool fetch (Result& out);
         void run() override;
     private:
         juce::CriticalSection lock;
         Request request;
         bool hasRequest = false, hasResult = false;
-        dop::autopilot::Calibration result;
-        uint64_t resultId = 0;
+        Result result;
         std::atomic<bool> cancel { false };
     };
 
@@ -187,6 +196,8 @@ private:
     std::shared_ptr<const std::vector<float>> calibAudio;   // gelernte Passage (nur Message-Thread)
     float learnedWithLowcut = 80.0f;
     bool autoApplyPending = false;
+    bool deessAnalysisWanted = false, deessAnalysisRunning = false, deessApplyPending = false;
+    uint64_t deessRequestId = 0;
     std::vector<float> lastCalibKey, submittedCalibKey;
     std::vector<float> calibratedKey;   // Einstellungen, fuer die info.calibration gemessen wurde (auch gespeichert)
     static bool calibrationKeysMatch (const std::vector<float>&, const std::vector<float>&);

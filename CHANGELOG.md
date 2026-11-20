@@ -1,5 +1,15 @@
 # Änderungen
 
+## 2.1 – 20. November 2026
+
+- **Automatischer De-Esser (mit AUTO):** Nach dem Lernen werden Frequenz und Stärke aus sicher erkannten Zischlauten gewählt. Erkannt werden nur kurze, rauschartige Abschnitte nahe am Sprechpegel, in denen die Höhen überwiegen; helle Vokale, Atmer und Flüstern zählen nicht.
+- Ziel ist eine natürliche Balance, keine feste Absenkung: Liegen die lauten S-Laute höchstens 12 dB unter den Vokalen, bleibt die Stärke bei 0 % (Stimme bitgenau unbearbeitet). Sonst die kleinste Stärke, die das erreicht, höchstens 60 %, und nur, solange Vokale um höchstens 0,3 dB berührt werden.
+- Bei weniger als 8 sicheren S-Lauten (oder unter 0,4 s), Flüstern oder viel zischähnlichem Geräusch bleibt die Einstellung unverändert. Der Prüfbericht (Tooltip von AUTO) nennt Entscheidung und Grund.
+- Danach misst der Autopilot die Lautheit mit den neuen Werten nach. Keine zusätzlichen Regler.
+- Validierung mit hellen Stimmen, wenigen S-Lauten, Flüstern, Atmern und starken S-Lauten: [Prüfung](docs/DEESSER_AUTO_2.1.md).
+
+[Release-Hinweise](docs/releases/2.1.md)
+
 ## 2.0 – 19. November 2026
 
 - **Behoben:** Nach Speichern/Laden konnte eine veraltete Nachmessung als „geprüft“ gelten. Die Messung wird jetzt mit den Einstellungen gespeichert, für die sie gilt.
