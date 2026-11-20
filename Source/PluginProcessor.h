@@ -109,7 +109,7 @@ private:
     public:
         struct Request
         {
-            std::shared_ptr<const std::vector<float>> audio;
+            std::shared_ptr<const dop::CapturedAudio> audio;
             double fs = 48000.0;
             dop::EngineParams params;
             std::array<dop::Biquad, dop::kBands> bank {};
@@ -193,7 +193,7 @@ private:
     float eqDeltaDb = 0.0f;                     // Lautheitsschaetzung des EQs (fuer die Nachmessung)
     std::array<dop::Biquad, dop::kBands> designedBank {};
     std::atomic<float>* pAutopilot = nullptr;
-    std::shared_ptr<const std::vector<float>> calibAudio;   // gelernte Passage (nur Message-Thread)
+    std::shared_ptr<const dop::CapturedAudio> calibAudio;   // gelernte Passage (nur Message-Thread)
     float learnedWithLowcut = 80.0f;
     bool autoApplyPending = false;
     bool deessAnalysisWanted = false, deessAnalysisRunning = false, deessApplyPending = false;

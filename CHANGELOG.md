@@ -1,5 +1,10 @@
 # Änderungen
 
+## Unveröffentlicht
+
+- **Behoben:** Bei Stereo-Spuren rechnete die Nachmessung die Kette einkanalig mit 0,5·(L+R). Bei hohem Ziel und stark eingreifendem Spitzenschutz passte sie dann nicht zum Ausgang (z. B. Ziel −16, L=R: −16,0 gemeldet, −15,2 LUFS tatsächlich). Mitgeschnitten werden jetzt beide Kanäle getrennt; die Nachmessung rechnet Lautheit und gekoppelten Spitzenschutz wie der Stereo-Ausgang. Auch der gemeldete Spitzenschutz-Wert stimmt damit für Stereo.
+- Mono unverändert. In Stereo-Projekten aus älteren Versionen gilt die gespeicherte Nachmessung nicht mehr als „geprüft“; einmal neu lernen.
+
 ## 2.1 – 20. November 2026
 
 - **Automatischer De-Esser (mit AUTO):** Nach dem Lernen werden Frequenz und Stärke aus sicher erkannten Zischlauten gewählt. Erkannt werden nur kurze, rauschartige Abschnitte nahe am Sprechpegel, in denen die Höhen überwiegen; helle Vokale, Atmer und Flüstern zählen nicht.
