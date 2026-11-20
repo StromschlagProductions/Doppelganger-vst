@@ -12,11 +12,6 @@ aufgenommen worden, ohne dass man jede Spur mit mehreren Plugins einzeln nachbea
 
 **⬇ Download (Windows · VST3 · Mono/Stereo):** https://github.com/StromschlagProductions/Doppelganger-vst/releases/latest
 
-Installation: ZIP entpacken und den Ordner `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
-
-**Aktuelle Version: 2.2.** Stereo-Spuren werden jetzt kanalrichtig nachgemessen, und das Lernen endet erst, wenn auch die Lautheit stabil erfasst ist (frühestens nach 20 s Sprache). Seit 2.1 stellt der Autopilot auch den De-Esser ein: konservativ, nur aus sicher erkannten Zischlauten; unauffällige Stimmen bleiben unbearbeitet. Seit 2.0 ist die Prüfung verlässlich, auch nach Speichern/Laden und nach Lowcut-Änderungen, mit True-Peak-Angabe. **Seit 1.8: Autopilot.** Lernen, fertig: Mit **AUTO** stellt das Plugin Angleichung, Lowcut und De-Esser selbst ein, misst die Lautheit der ganzen Kette nach, schützt die Spitzen bei −1 dBFS und meldet, ob alles passt. Seit 1.7 setzt unter dem EQ-Schalter **RESET** alle fünf Bänder auf 0 dB, Standardfrequenz und Q = 1 zurück. Das Klangbild ist klarer beschriftet: Referenz, gelernter Eingang, Korrektur und Ausgang live haben je ein Farbmuster, der EQ zeigt seinen Zustand. Seit 1.4.1 werden Mono und Stereo kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel angepasst. Enthalten sind außerdem der Angleich-Bereich, die überarbeitete S-Laut-Erkennung und die integrierte Lautheitsanzeige aus 1.4 sowie der fünfbandige Fein-EQ.
-
-[Was ist neu?](CHANGELOG.md) · [Release-Hinweise und Installation](docs/releases/2.0.md) · [Qualitätsbericht 1.1.1](docs/QUALITY_REPORT_1.1.1.md)
 
 ## Warum es dieses Plugin gibt
 
@@ -78,7 +73,7 @@ Beide Bilder zeigen eine gelernte Stimme mit Live-Ausgang und eingeschaltetem EQ
 Oben in der Karte EINGANG wird die Spur gelernt und die erkannte Stimmlage angezeigt. Darunter das Klangbild mit Referenz (grau),
 gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darunter sind Klang, De-Esser und Lautheit, ganz unten der optionale EQ. Die **?**-Taste öffnet die Hilfe.
 
-## Bedienung
+## Anwendung
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
 2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich Klangbild und Lautstärke nicht mehr verändern, und hört dann von allein
@@ -151,7 +146,34 @@ python3 tools/make_reference_curves.py tief=MANN.wav mittel=FRAU1.wav hoch=FRAU2
 
 Die Referenzen enden bei ca. 16 kHz (Codec-Grenze). Darüber korrigiert das Plugin nicht, die Höhen der Takes bleiben erhalten.
 
-## Bauen und testen
+## Installation (Windows)
+
+1. Über den Download-Link oben das ZIP laden.
+2. ZIP entpacken und den **ganzen Ordner** `Doppelganger.vst3` nach `C:\Program Files\Common Files\VST3` kopieren.
+3. DAW neu starten bzw. Plugins neu scannen.
+
+## Versionen
+
+Die Versionsnummer steht in der Datei `VERSION`, im Plugin-Kopf und im Namen der Release. Sie wird bei jeder
+Änderung hochgezählt. Alle Einzelheiten stehen in den [Änderungen](CHANGELOG.md), das Versionsschema in
+[Versionsnummern](docs/VERSIONING.md).
+
+- **2.2** – Stereo-Spuren werden kanalrichtig nachgemessen. Das Lernen endet erst, wenn auch die Lautheit stabil erfasst ist (frühestens nach 20 s Sprache). [Release-Hinweise](docs/releases/2.2.md).
+- **2.1** – Der Autopilot stellt auch den De-Esser ein: konservativ, nur aus sicher erkannten Zischlauten; unauffällige Stimmen bleiben unbearbeitet. [Release-Hinweise](docs/releases/2.1.md).
+- **2.0** – Verlässliche Prüfung auch nach Speichern/Laden und nach Lowcut-Änderungen, mit True-Peak-Angabe. [Release-Hinweise](docs/releases/2.0.md).
+- **1.9** – Die eingebaute Hilfe beschreibt den Autopiloten an allen Stellen. Klang unverändert. [Release-Hinweise](docs/releases/1.9.md).
+- **1.8** – **Autopilot (AUTO):** Lernen, fertig. Das Plugin stellt Angleichung und Lowcut selbst ein, misst die Lautheit der ganzen Kette nach, schützt die Spitzen bei −1 dBFS und meldet, ob alles passt. [Release-Hinweise](docs/releases/1.8.md).
+- **1.7** – **RESET** unter dem EQ-Schalter setzt alle fünf Bänder zurück. [Release-Hinweise](docs/releases/1.7.md).
+- **1.6** – Klangbild klarer beschriftet (Referenz, gelernter Eingang, Korrektur und Ausgang live mit Farbmustern), die untere Karte heißt EQ.
+- **1.5** – Einheitliche öffentliche Versionsnummer für Plugin, Release und ZIP. Klang wie 1.4.1.
+- **1.4.1** – Mono und Stereo werden kanalrichtig nach BS.1770 gemessen und auf das Lautheitsziel gebracht.
+- **1.4** – Angleich-Bereich mit zwei Begrenzern, De-Esser, der nur auf Zischlaute reagiert, gemessene Lautheit nach EBU R128 in der Karte LAUTHEIT. [Messung De-Esser](docs/DEESSER_1.4.md).
+- **1.3** – LISTEN spielt die entfernten De-Esser-Anteile ab (DIFF).
+- **1.2** – Optionale Feinabstimmung mit fünf frei einstellbaren Bändern direkt im Klangbild. Anregung aus dem Beta-Test.
+- **1.1.1** – Technische Qualitätsüberarbeitung: Nebenläufigkeit, Lernpuffer, Filterübergänge, Tests mit Sanitizern. [Qualitätsbericht](docs/QUALITY_REPORT_1.1.1.md).
+- **1.1** – De-Esser-Anzeige mit Verlauf, automatisches Lernende bei stabilem Klangbild.
+
+## Aufbau
 
 - Windows-VST3: Der Build mit Regressionstests und pluginval Level 8 läuft nicht bei jedem Commit, sondern von Hand (Actions > „Windows-VST3 bauen“ > Run workflow) und bei Pull Requests. Ein Release entsteht nur, wenn dabei „publish“ angehakt wird. Details: [CI-Konfiguration](docs/CI.md).
 - Automatische DSP-/Transporttests ohne JUCE: `cmake -S . -B build/tests -DDOPPELGANGER_TESTS=ON`, danach `cmake --build build/tests` und `ctest --test-dir build/tests --output-on-failure`.
@@ -193,4 +215,3 @@ Das Projekt wird laufend weiterentwickelt. Trotz sorgfältiger Tests können Feh
 
 Wenn dieses kleine Werkzeug auch anderen die Hörspielarbeit erleichtert und mehr Raum für Geschichten und menschliche Kreativität schafft, freut mich das ganz besonders.
 
-Öffentliches Versionsschema und Release-Ablauf: [Versionsnummern](docs/VERSIONING.md).
