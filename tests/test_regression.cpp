@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include "TestSupport.h"
+#include "SpeechSynth.h"
 #include "../Source/LiveSpectrum.h"
 #include <limits>
 #include <atomic>
@@ -614,4 +615,119 @@ void autopilotTests()
     }
 }
 
-int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); channelLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); autopilotTests(); std::puts ("DSP, FFT and learning regressions passed"); }
+// Automatischer De-Esser: nur aus sicher erkannten Zischlauten, unauffaellige Stimmen bleiben unbearbeitet,
+// bei unzureichendem Material wird nichts veraendert.
+void deesserAutopilotTests()
+{
+    using DC = dop::autopilot::DeesserChoice;
+    const auto flat = dop::flatBank().coeffs;
+    auto choose = [&] (const SpeechOptions& o, double fs, int* truth = nullptr, double seconds = 20.0)
+    {
+        const auto x = synthSpeech (fs, seconds, o, truth);
+        const auto c = dop::autopilot::chooseDeesser (x, fs, dop::EngineParams {}, flat);
+        if (std::getenv ("DOP_VERBOSE"))
+            std::fprintf (stderr, "De-Esser-Autopilot fs %.0f f0 %.0f hell %d S %+.0f dB %.2f/s %.0f Hz fluester %d atem %d: Entscheidung %d (%d), %d S, %.0f Hz, %.0f %%, %+.1f -> %+.1f dB, Vokale %.2f dB\n",
+                         fs, o.f0, (int) o.bright, o.sibDb, o.sibPerSecond, o.sibCenterHz, (int) o.whisper, (int) o.breaths,
+                         c.decision, c.reason, c.events, c.freqHz, c.amount * 100, c.sharpnessBeforeDb, c.sharpnessAfterDb, c.vowelCostDb);
+        CHECK (c.amount >= 0.0f && c.amount <= dop::autopilot::kDeessMaxAmount + 1e-6f);
+        CHECK (c.vowelCostDb <= dop::autopilot::kDeessMaxVowelCostDb + 1e-6f);
+        if (c.decision == DC::kApplied) CHECK (c.freqHz >= dop::autopilot::kDeessMinFreq && c.freqHz <= dop::autopilot::kDeessMaxFreq);
+        return c;
+    };
+    for (double fs : { 44100., 48000., 96000. })
+    {
+        const bool full = fs == 48000.;
+        // Unauffaellige S-Laute (natuerlich: 13-16 dB unter den Vokalen) -> Staerke 0, Stimme unbearbeitet
+        for (double f0 : { 120.0, 210.0 })
+            for (bool bright : { false, true })
+                for (double sib : { -18.0, -14.0 })
+                {
+                    if (! full && (bright || sib != -18.0)) continue;
+                    SpeechOptions o; o.f0 = f0; o.bright = bright; o.sibDb = sib;
+                    int truth = 0;
+                    const auto c = choose (o, fs, &truth);
+                    CHECK (c.decision == DC::kNotNeeded && c.amount == 0.0f);
+                    CHECK (std::abs (c.events - truth) <= 2);   // jeder Zischlaut einzeln erkannt, Vokale nicht mitgezaehlt
+                }
+        // Scharfe S-Laute -> angewandt, so wenig wie noetig, Vokale unberuehrt; helle Stimme nicht anders als dunkle
+        float amountDark = 0, amountBright = 0;
+        for (bool bright : { false, true })
+        {
+            SpeechOptions o; o.f0 = bright ? 210.0 : 120.0; o.bright = bright; o.sibDb = -6.0;
+            const auto c = choose (o, fs);
+            CHECK (c.decision == DC::kApplied && c.amount > 0.0f && c.amount < dop::autopilot::kDeessMaxAmount);
+            CHECK (c.sharpnessAfterDb <= dop::autopilot::kDeessTargetDb + 0.5f);   // Ziel erreicht
+            CHECK (c.sibilantReductionDb > 2.0f && c.vowelCostDb < 0.1f);
+            (bright ? amountBright : amountDark) = c.amount;
+        }
+        CHECK (std::abs (amountBright - amountDark) <= 0.1f);
+        // Sehr scharfe S-Laute -> begrenzt auf die Hoechststaerke, deutlich gemildert
+        {
+            SpeechOptions o; o.sibDb = 6.0;
+            const auto c = choose (o, fs);
+            CHECK (c.decision == DC::kApplied && c.amount == dop::autopilot::kDeessMaxAmount);
+            CHECK (c.sharpnessAfterDb < c.sharpnessBeforeDb - 6.0f);
+        }
+        if (! full) continue;
+        // Mehr Schaerfe -> nie weniger Staerke
+        float previous = -1;
+        for (double sib : { -18.0, -10.0, -8.0, -6.0, -3.0, 0.0 })
+        {
+            SpeechOptions o; o.sibDb = sib;
+            const auto c = choose (o, fs);
+            CHECK (c.amount >= previous);
+            previous = c.amount;
+        }
+        // Frequenz folgt der Lage der Zischenergie
+        float lastFreq = 0;
+        for (double center : { 4500.0, 6500.0, 8500.0 })
+        {
+            SpeechOptions o; o.sibDb = 0.0; o.sibCenterHz = center;
+            const auto c = choose (o, fs);
+            CHECK (c.decision == DC::kApplied && c.freqHz >= lastFreq);
+            lastFreq = c.freqHz;
+        }
+        // Natuerlich helle Stimme ohne S-Laute: nichts erkannt, nichts veraendert
+        { SpeechOptions o; o.f0 = 220; o.bright = true; o.sibPerSecond = 0; const auto c = choose (o, fs);
+          CHECK (c.decision == DC::kInsufficient && c.reason == DC::kTooFewSibilants && c.events == 0); }
+        // Wenige (auch scharfe) S-Laute: keine vermeintlich praezise Einstellung
+        { SpeechOptions o; o.sibPerSecond = 0.15; o.sibDb = 6.0; const auto c = choose (o, fs);
+          CHECK (c.decision == DC::kInsufficient && c.reason == DC::kTooFewSibilants && c.amount == 0.0f); }
+        // Kurzes Lernmaterial (4 s)
+        { SpeechOptions o; o.sibDb = 0.0; const auto c = choose (o, fs, nullptr, 4.0);
+          CHECK (c.decision == DC::kInsufficient); }
+        // Fluestern: kein Stimmklang -> unveraendert
+        for (double sib : { -12.0, 0.0 })
+        { SpeechOptions o; o.whisper = true; o.sibDb = sib; const auto c = choose (o, fs);
+          CHECK (c.decision == DC::kInsufficient && c.reason == DC::kNoVoicedSpeech); }
+        // Atmer zaehlen nicht als Zischlaute und aendern die Entscheidung nicht
+        {
+            SpeechOptions o; o.sibDb = -6.0; o.breaths = true;
+            int truth = 0;
+            const auto c = choose (o, fs, &truth);
+            SpeechOptions plain = o; plain.breaths = false;
+            const auto d = choose (plain, fs);
+            CHECK (std::abs (c.events - truth) <= 2 && c.decision == d.decision && std::abs (c.amount - d.amount) <= 0.05f);
+        }
+        // Abbruch liefert keine Entscheidung
+        {
+            std::atomic<bool> stop { true };
+            SpeechOptions o; const auto x = synthSpeech (fs, 10.0, o);
+            CHECK (dop::autopilot::chooseDeesser (x, fs, dop::EngineParams {}, flat, &stop).decision == DC::kNone);
+            CHECK (dop::autopilot::chooseDeesser (std::vector<float> ((size_t) fs, 0.0f), fs, dop::EngineParams {}, flat).decision == DC::kInsufficient);
+        }
+    }
+    // Staerke 0 ist bitgenau neutral: "nicht noetig" laesst die Stimme wirklich unbearbeitet
+    {
+        SpeechOptions o; o.sibDb = 0.0; const auto x = synthSpeech (48000, 3.0, o);
+        auto run = [&] (bool on)
+        {
+            dop::Engine e; e.prepare (48000); auto p = bypass(); p.deessOn = on; p.deess = 0.0f; e.setParams (p); e.reset();
+            auto y = x; for (size_t off = 0; off < y.size(); off += 256) { float* q[] = { y.data() + off }; e.process (q, 1, (int) std::min<size_t> (256, y.size() - off), nullptr); }
+            return y;
+        };
+        CHECK (run (true) == run (false));
+    }
+}
+
+int main() { spectrumTests(); engineTests(); transitionTests(); learningTests(); fineTests(); deesserSelectivity(); integratedLoudnessTests(); channelLoudnessTests(); fineRateAndAutomationTests(); removedListenTests(); autopilotTests(); deesserAutopilotTests(); std::puts ("DSP, FFT and learning regressions passed"); }

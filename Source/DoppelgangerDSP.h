@@ -1576,6 +1576,298 @@ inline Calibration calibrate (const std::vector<float>& audio, double fs, Engine
     r.ok = true;
     return r;
 }
+//==============================================================================
+//  Automatischer De-Esser: konservativ, nur aus sicher erkannten Zischlauten.
+//  Ziel ist nicht eine feste Absenkung, sondern eine natuerliche Balance: Die lauten Zischlaute sollen im Zischband
+//  hoechstens kDeessTargetDb unter dem mittleren Pegel der Vokale derselben Stimme liegen. Nach den klassischen
+//  relativen Lautstaerken der Sprachlaute (Fletcher) liegt /s/ etwa 13-16 dB unter einem offenen Vokal; erst darueber
+//  wird eingegriffen, und nur so weit wie noetig. Stimmen, deren S-Laute schon darunter liegen, bleiben unbearbeitet
+//  (Staerke 0). Reicht das Material nicht oder fehlt klarer Stimmklang (Fluestern), wird nichts veraendert.
+//==============================================================================
+struct DeesserChoice
+{
+    enum Decision { kNone = 0, kInsufficient = 1, kNotNeeded = 2, kApplied = 3 };
+    enum Reason { kOk = 0, kTooFewSibilants = 1, kTooMuchNoise = 2, kVowelsAffected = 3, kNoVoicedSpeech = 4 };
+    int decision = kNone;
+    int reason = kOk;
+    int events = 0;                  // sicher erkannte Zischlaute
+    float sibilantSeconds = 0.0f;
+    float freqHz = 5500.0f;          // gewaehlte Frequenz (nur bei kApplied)
+    float amount = 0.0f;             // gewaehlte Staerke 0..1 (kNotNeeded: 0)
+    float sharpnessBeforeDb = 0.0f;  // Zischband der lauten Zischlaute gegen den mittleren Vokalpegel (dB)
+    float sharpnessAfterDb = 0.0f;
+    float sibilantReductionDb = 0.0f;  // mittlere Absenkung im Zischband bei den Zischlauten
+    float vowelCostDb = 0.0f;          // mittlere Absenkung im Zischband bei Vokalen (soll ~0 sein)
+};
+
+constexpr float kDeessTargetDb = -12.0f;       // Zischlaute hoechstens 12 dB unter den Vokalen (natuerlich: 13-16 dB)
+constexpr float kDeessMinVoicedShare = 0.1f;   // so viel der Sprache muss klar stimmhaft sein (sonst Fluestern/Rauschen)
+constexpr float kDeessMaxAmount = 0.6f;
+constexpr float kDeessMaxVowelCostDb = 0.3f;
+constexpr int kDeessMinEvents = 8;
+constexpr float kDeessMinSeconds = 0.4f, kDeessMaxSibilantShare = 0.3f;
+constexpr float kDeessMinFreq = 4000.0f, kDeessMaxFreq = 8000.0f;
+constexpr double kSibMinDur = 0.03, kSibMaxDur = 0.35;
+
+namespace detail
+{
+struct SpectralFrames
+{
+    int N = 1024, hop = 512, bins = 513;
+    double fs = 48000.0;
+    FFT fft;
+    std::vector<double> window;
+    std::vector<std::complex<double>> work;
+    void prepare (double sampleRate)
+    {
+        fs = sampleRate;
+        N = 1; while (N < (int) std::lround (0.02 * fs)) N <<= 1;
+        hop = N / 2; bins = N / 2 + 1;
+        fft.prepare (N);
+        window.resize ((size_t) N);
+        for (int i = 0; i < N; ++i) window[(size_t) i] = 0.5 - 0.5 * std::cos (2.0 * kPi * i / N);
+        work.resize ((size_t) N);
+    }
+    int frames (size_t len) const { return len < (size_t) N ? 0 : (int) ((len - (size_t) N) / (size_t) hop) + 1; }
+    int bin (double hz) const { return std::clamp ((int) std::lround (hz * N / fs), 1, bins - 1); }
+    // Leistungsspektrum eines Frames in 'power' (bins Werte); Rueckgabe: mittlerer Pegel des Frames in dB
+    double analyse (const std::vector<float>& x, int frame, std::vector<double>& power)
+    {
+        const size_t off = (size_t) frame * (size_t) hop;
+        double ms = 0;
+        for (int i = 0; i < N; ++i)
+        {
+            const double v = x[off + (size_t) i];
+            ms += v * v;
+            work[(size_t) i] = v * window[(size_t) i];
+        }
+        fft.forward (work);
+        power.resize ((size_t) bins);
+        for (int k = 0; k < bins; ++k) power[(size_t) k] = std::norm (work[(size_t) k]);
+        return 10.0 * std::log10 (ms / N + 1e-20);
+    }
+    double band (const std::vector<double>& power, double lo, double hi) const
+    {
+        double e = 0;
+        for (int k = bin (lo); k <= bin (hi); ++k) e += power[(size_t) k];
+        return e;
+    }
+};
+
+// Stimmklang: Periodizitaet ueber 40 ms (normierte Autokorrelation im Bereich 70-400 Hz). Stimmhafte Vokale ~0,7..1,
+// Fluestern und Rauschen < 0,4. Funktioniert unabhaengig von Tonhoehe und Helligkeit der Stimme.
+struct Voicing
+{
+    int M = 1920, P = 4096, minLag = 120, maxLag = 686;
+    FFT fft;
+    std::vector<std::complex<double>> work;
+    void prepare (double fs)
+    {
+        M = (int) std::lround (0.04 * fs);
+        P = 1; while (P < 2 * M) P <<= 1;
+        minLag = (int) (fs / 400.0); maxLag = std::min (M - 1, (int) (fs / 70.0));
+        fft.prepare (P);
+        work.resize ((size_t) P);
+    }
+    double operator() (const std::vector<float>& x, size_t centre)
+    {
+        const size_t start = centre >= (size_t) M / 2 ? centre - (size_t) M / 2 : 0;
+        if (start + (size_t) M > x.size()) return 0.0;
+        std::fill (work.begin(), work.end(), std::complex<double> (0.0));
+        double mean = 0;
+        for (int i = 0; i < M; ++i) mean += x[start + (size_t) i];
+        mean /= M;
+        for (int i = 0; i < M; ++i) work[(size_t) i] = x[start + (size_t) i] - mean;
+        fft.forward (work);
+        for (auto& v : work) v = std::norm (v);
+        fft.inverse (work);
+        const double r0 = work[0].real();
+        if (! (r0 > 1e-20)) return 0.0;
+        double best = 0;
+        for (int l = minLag; l <= maxLag; ++l)   // Korrektur fuer die kleiner werdende Ueberlappung
+            best = std::max (best, work[(size_t) l].real() / r0 * (double) M / (double) (M - l));
+        return std::min (best, 1.0);
+    }
+};
+
+inline std::vector<float> render (const std::vector<float>& x, double fs, EngineParams p,
+                                  const std::array<Biquad, kBands>& bank, const std::atomic<bool>* cancel)
+{
+    p.leveler = 0.0f; p.takeLufs = -100.0f; p.calibDb = 0.0f; p.peakGuard = false; p.deessListen = false;
+    auto e = std::make_unique<Engine>();
+    e->prepare (fs); e->setParams (p); e->setBank (bank); e->reset();
+    std::vector<float> y = x;
+    for (size_t off = 0; off < y.size(); off += 4096)
+    {
+        if (cancel != nullptr && cancel->load (std::memory_order_relaxed)) return {};
+        float* ptr[] = { y.data() + off };
+        e->process (ptr, 1, (int) std::min<size_t> (4096, y.size() - off), nullptr);
+    }
+    return y;
+}
+} // namespace detail
+
+// audio: Mono-Eingang vor dem Lowcut (Autopilot-Mitschnitt). base: Lowcut und EQ-Feinabstimmung wie eingestellt;
+// bank: Angleich-EQ. Der De-Esser sieht dasselbe Signal wie im Betrieb.
+inline DeesserChoice chooseDeesser (const std::vector<float>& audio, double fs, EngineParams base,
+                                    const std::array<Biquad, kBands>& bank, const std::atomic<bool>* cancel = nullptr)
+{
+    DeesserChoice r;
+    fs = validSampleRate (fs);
+    base.deessOn = false;
+    const auto y0 = detail::render (audio, fs, base, bank, cancel);
+    if (y0.empty()) return r;
+    detail::SpectralFrames sf; sf.prepare (fs);
+    const int nf = sf.frames (y0.size());
+    r.decision = DeesserChoice::kInsufficient;
+    r.reason = DeesserChoice::kTooFewSibilants;
+    if (nf < 50) return r;
+
+    const double top = std::min (12000.0, 0.45 * fs);
+    std::vector<double> level ((size_t) nf), ratio ((size_t) nf), flat ((size_t) nf), power;
+    detail::Voicing voicing; voicing.prepare (fs);
+    auto flatness = [&] (double loHz, double hiHz)
+    {
+        double lg = 0, ar = 0; int n = 0;
+        for (int k = sf.bin (loHz); k <= sf.bin (hiHz); ++k) { lg += std::log (power[(size_t) k] + 1e-24); ar += power[(size_t) k]; ++n; }
+        return n > 0 && ar > 0 ? std::exp (lg / n) / (ar / n) : 0.0;
+    };
+    for (int f = 0; f < nf; ++f)
+    {
+        level[(size_t) f] = sf.analyse (y0, f, power);
+        const double lo = sf.band (power, 80.0, 3000.0), hi = sf.band (power, 4500.0, top);
+        ratio[(size_t) f] = 10.0 * std::log10 ((hi + 1e-20) / (lo + 1e-20));
+        // Rauschartigkeit (spektrale Flachheit): Zischen im Zischband ~0,5..0,9, Obertoene heller Vokale deutlich darunter.
+        flat[(size_t) f] = flatness (4000.0, top);
+    }
+    // Sprechpegel: 90. Perzentil der nicht stillen Frames
+    std::vector<double> lv;
+    for (double l : level) if (l > -90.0) lv.push_back (l);
+    if (lv.size() < 50) return r;
+    std::nth_element (lv.begin(), lv.begin() + (long) (lv.size() * 9 / 10), lv.end());
+    const double speech = lv[lv.size() * 9 / 10];
+
+    std::vector<char> cand ((size_t) nf, 0);
+    int speechFrames = 0, candFrames = 0;
+    for (int f = 0; f < nf; ++f)
+    {
+        const bool sp = level[(size_t) f] >= speech - 30.0;
+        speechFrames += sp ? 1 : 0;
+        cand[(size_t) f] = sp && ratio[(size_t) f] >= 0.0 && flat[(size_t) f] >= 0.3 ? 1 : 0;
+        candFrames += cand[(size_t) f];
+    }
+    // Zusammenhaengende Abschnitte: echte Zischlaute dauern 30..350 ms. Laengeres ist Fluestern oder Dauerrauschen.
+    std::vector<std::pair<int, int>> events;
+    for (int f = 0; f < nf;)
+    {
+        if (! cand[(size_t) f]) { ++f; continue; }
+        int e = f; while (e < nf && cand[(size_t) e]) ++e;
+        const double dur = ((e - f - 1) * sf.hop + sf.N) / fs;
+        if (dur >= kSibMinDur && dur <= kSibMaxDur) events.emplace_back (f, e);
+        f = e;
+    }
+    // Vokale: tiefer Stimmbereich staerker, harmonisch (Stimmklang), laut, nicht direkt neben einem Zischlaut
+    std::vector<char> vowel ((size_t) nf, 0);
+    const int guard = std::max (1, (int) std::lround (0.05 * fs / sf.hop));
+    int vowelFrames = 0;
+    for (int f = 0; f < nf; ++f)
+    {
+        // Abstand nur 6 dB: natuerlich helle Stimmen haben kraeftige Obertoene im Zischband und bleiben trotzdem Vokale
+        if (ratio[(size_t) f] > -6.0 || level[(size_t) f] < speech - 15.0) continue;
+        if (voicing (y0, (size_t) f * (size_t) sf.hop + (size_t) sf.N / 2) < 0.5) continue;   // kein Stimmklang
+        bool near = false;
+        for (int g = std::max (0, f - guard); g <= std::min (nf - 1, f + guard) && ! near; ++g) near = cand[(size_t) g] != 0;
+        vowel[(size_t) f] = near ? 0 : 1;
+        vowelFrames += vowel[(size_t) f];
+    }
+    r.events = (int) events.size();
+    double sibFrames = 0; for (auto& ev : events) sibFrames += ev.second - ev.first;
+    r.sibilantSeconds = (float) (sibFrames * sf.hop / fs);
+    if (speechFrames > 0 && (double) candFrames / speechFrames > kDeessMaxSibilantShare)
+    { r.reason = DeesserChoice::kTooMuchNoise; return r; }
+    if (speechFrames == 0 || (double) vowelFrames / speechFrames < kDeessMinVoicedShare)
+    { r.reason = DeesserChoice::kNoVoicedSpeech; return r; }
+    if (r.events < kDeessMinEvents || r.sibilantSeconds < kDeessMinSeconds) return r;
+
+    // Frequenz: untere Kante der Zischenergie dieser Stimme (gemitteltes Spektrum der Zischlaute, Terz-geglaettet)
+    std::vector<double> avg ((size_t) sf.bins, 0.0);
+    for (auto& ev : events)
+        for (int f = ev.first; f < ev.second; ++f)
+        {
+            sf.analyse (y0, f, power);
+            for (int k = 0; k < sf.bins; ++k) avg[(size_t) k] += power[(size_t) k];
+        }
+    auto smoothAt = [&] (double hz)
+    {
+        double e = 0; int n = 0;
+        for (int k = sf.bin (hz / 1.122); k <= sf.bin (hz * 1.122); ++k) { e += avg[(size_t) k]; ++n; }
+        return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+    };
+    double peakHz = 3000.0, peakDb = -1e9;
+    for (double hz = 3000.0; hz <= top; hz *= 1.03)
+        if (const double d = smoothAt (hz); d > peakDb) { peakDb = d; peakHz = hz; }
+    double edge = peakHz;
+    while (edge > 3000.0 && smoothAt (edge / 1.03) >= peakDb - 3.0) edge /= 1.03;   // Beginn der Hauptenergie
+    r.freqHz = std::clamp (std::round ((float) edge / 100.0f) * 100.0f, kDeessMinFreq, std::min (kDeessMaxFreq, (float) (0.4 * fs)));
+
+    // Schaerfe: Zischband (ab der Frequenz) der lauten Haelfte der Zischlaute gegen den mittleren Vokalpegel
+    const double fHi = r.freqHz;
+    std::vector<double> evLevel;
+    for (auto& ev : events) { double m = 0; for (int f = ev.first; f < ev.second; ++f) m += level[(size_t) f]; evLevel.push_back (m / (ev.second - ev.first)); }
+    std::vector<double> sortedLv = evLevel; std::nth_element (sortedLv.begin(), sortedLv.begin() + (long) (sortedLv.size() / 2), sortedLv.end());
+    const double loudFrom = sortedLv[sortedLv.size() / 2];
+    struct Measure { double sharp = 0, sibHi = 0, vowelHi = 0; };
+    auto measure = [&] (const std::vector<float>& y)
+    {
+        Measure m; std::vector<double> pw;
+        double loudHi = 0, vowelFull = 0; long loudFrames = 0, vFrames = 0;
+        for (size_t i = 0; i < events.size(); ++i)
+            for (int f = events[i].first; f < events[i].second; ++f)
+            {
+                sf.analyse (y, f, pw);
+                m.sibHi += sf.band (pw, fHi, top);
+                if (evLevel[i] >= loudFrom) { loudHi += sf.band (pw, fHi, top); ++loudFrames; }
+            }
+        for (int f = 0; f < nf; ++f)
+            if (vowel[(size_t) f])
+            {
+                sf.analyse (y, f, pw);
+                m.vowelHi += sf.band (pw, fHi, top);
+                vowelFull += sf.band (pw, 80.0, top); ++vFrames;
+            }
+        m.sharp = loudFrames > 0 && vFrames > 0 ? 10.0 * std::log10 ((loudHi / loudFrames + 1e-30) / (vowelFull / vFrames + 1e-30)) : -100.0;
+        return m;
+    };
+    const Measure m0 = measure (y0);
+    r.sharpnessBeforeDb = r.sharpnessAfterDb = (float) m0.sharp;
+    if (m0.sharp <= kDeessTargetDb)
+    {
+        r.decision = DeesserChoice::kNotNeeded; r.amount = 0.0f; r.reason = DeesserChoice::kOk;
+        return r;
+    }
+    // Kleinste Staerke, die das Ziel erreicht, ohne Vokale anzutasten
+    bool any = false;
+    for (float a : { 0.05f, 0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.35f, 0.4f, 0.5f, 0.6f })
+    {
+        if (a > kDeessMaxAmount + 1e-6f) break;
+        EngineParams p = base; p.deessOn = true; p.deess = a; p.deessFreqHz = r.freqHz;
+        const auto y = detail::render (audio, fs, p, bank, cancel);
+        if (y.empty()) return {};
+        const Measure m = measure (y);
+        const double vowelCost = m0.vowelHi > 0 ? -10.0 * std::log10 ((m.vowelHi + 1e-30) / m0.vowelHi) : 0.0;
+        if (vowelCost > kDeessMaxVowelCostDb) break;   // ab hier wuerde der De-Esser Vokale mitnehmen
+        any = true;
+        r.amount = a;
+        r.sharpnessAfterDb = (float) m.sharp;
+        r.sibilantReductionDb = (float) (m0.sibHi > 0 ? -10.0 * std::log10 ((m.sibHi + 1e-30) / m0.sibHi) : 0.0);
+        r.vowelCostDb = (float) vowelCost;
+        if (m.sharp <= kDeessTargetDb) break;
+    }
+    if (! any) { r.decision = DeesserChoice::kInsufficient; r.reason = DeesserChoice::kVowelsAffected; r.amount = 0.0f; return r; }
+    r.decision = DeesserChoice::kApplied; r.reason = DeesserChoice::kOk;
+    return r;
+}
+
 } // namespace autopilot
 
 } // namespace dop

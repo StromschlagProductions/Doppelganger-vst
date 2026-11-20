@@ -62,9 +62,13 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
 
     head ("AUTOPILOT (AUTO)");
-    body ("Mit AUTO (Standard, oben rechts in der Karte KLANG) übernimmt das Plugin alles, was sich messen lässt. Du lernst nur und stellst bei Bedarf den De-Esser ein.");
+    body ("Mit AUTO (Standard, oben rechts in der Karte KLANG) übernimmt das Plugin alles, was sich messen lässt. Du lernst nur; nachstellen kannst du jederzeit.");
     body ("Nach dem Lernen stellt es die Angleichung so ein, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum übrig bleibt: kaum gefärbte Takes werden nur leicht "
           "angefasst (45 %), stark gefärbte deutlicher, aber nie ganz auf die Referenz gezogen (höchstens 85 %). Den Lowcut setzt es nach der Tonhöhe (80 bis 110 Hz).");
+    body ("Den De-Esser stellt es aus sicher erkannten Zischlauten ein: Gezählt werden nur kurze, rauschartige Abschnitte nahe am Sprechpegel, in denen die Höhen überwiegen; "
+          "helle Vokale, Atmer und Flüstern zählen nicht. Liegen die lauten S-Laute höchstens 12 dB unter den Vokalen (natürlich sind etwa 13 bis 16 dB), bleibt die Stärke bei 0 % "
+          "und die Stimme unbearbeitet. Sonst wählt es die Frequenz nach der S-Energie dieser Stimme (4 bis 8 kHz) und die kleinste Stärke, die die S-Laute auf dieses Maß bringt, "
+          "höchstens 60 % und nur, solange Vokale praktisch unberührt bleiben. Bei zu wenig S-Lauten, Flüstern oder viel Rauschen bleibt die Einstellung, wie sie ist.");
     body ("Danach rechnet es die gelernte Passage im Hintergrund einmal durch die ganze Kette und misst die Lautheit am Ausgang nach. Was De-Esser, Leveler und EQ "
           "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Nach jeder Regleränderung, auch am Lowcut, misst es neu. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen "
           "unter −1 dBFS und greift nur ein, wenn eine Spitze die Grenze wirklich überschreitet. Zwischen den Samples (True Peak) kann es knapp darüber liegen; "
@@ -507,7 +511,8 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
                u8 ("Wie stark die Klangfarbe an die Referenz angeglichen wird. Mit AUTO stellt das Plugin den Wert nach dem Lernen selbst ein: "
                    "so viel, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum bleibt (45–85 %). Doppelklick: 60 %"), 60.0);
     setupKnob (lowcutKnob, "lowcut", u8 ("LOWCUT"), u8 ("Hochpass 24 dB/Oktave, ganz links aus. Mit AUTO nach der Tonhöhe gesetzt (80–110 Hz). Doppelklick: 80 Hz"), 80.0);
-    setupKnob (deessKnob, "deess", u8 ("STÄRKE"), u8 ("Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. Doppelklick: 25 %"), 25.0);
+    setupKnob (deessKnob, "deess", u8 ("STÄRKE"), u8 ("Wie weit Zischlaute abgesenkt werden: 25 % ≈ 3 dB, 100 % ≈ 10 dB. "
+                                                     "Mit AUTO nach dem Lernen aus den erkannten S-Lauten gesetzt (0 % = unauffällig, unbearbeitet). Doppelklick: 25 %"), 25.0);
     setupKnob (deessFreqKnob, "deessFreq", u8 ("FREQUENZ"),
                u8 ("Ab hier sucht und bearbeitet der De-Esser die S-Laute. Mit „Listen“ abhören. Doppelklick: 5,5 kHz"), 5500.0);
     setupKnob (levelerKnob, "leveler", u8 ("LEVELER"),
@@ -672,6 +677,25 @@ void DoppelgangerEditor::updateAutopilotReport()
                  + (i.calibration.guardDb > 0.05f ? u8 (", Spitzenschutz bis ") + db1 (i.calibration.guardDb) + " dB." : u8 (", Spitzenschutz nicht nötig.")));
     tip.add (i.profile.noiseSnrDb >= 0.0f ? u8 ("Rauschabstand: ") + juce::String (juce::roundToInt (i.profile.noiseSnrDb)) + " dB."
                                           : u8 ("Rauschabstand: keine Pausen zum Messen."));
+    {
+        using DC = dop::autopilot::DeesserChoice;
+        const auto& d = i.deesser;
+        const juce::String n = juce::String (d.events) + u8 (" S-Laute erkannt");
+        if (d.decision == DC::kApplied)
+            tip.add (u8 ("De-Esser automatisch: ") + juce::String (juce::roundToInt (d.amount * 100.0f)) + u8 (" %, ")
+                     + juce::String (d.freqHz / 1000.0f, 1).replace (".", ",") + " kHz (" + n + u8 ("). Zischlaute ")
+                     + db1 (d.sharpnessBeforeDb) + u8 (" → ") + db1 (d.sharpnessAfterDb) + u8 (" dB gegenüber den Vokalen, Vokale ")
+                     + db1 (-d.vowelCostDb) + " dB.");
+        else if (d.decision == DC::kNotNeeded)
+            tip.add (u8 ("De-Esser: S-Laute unauffällig (") + db1 (d.sharpnessBeforeDb) + u8 (" dB gegenüber den Vokalen, ") + n
+                     + u8 ("), Stärke 0 %: die Stimme bleibt unbearbeitet."));
+        else if (d.decision == DC::kInsufficient)
+            tip.add (u8 ("De-Esser: Einstellung unverändert, ")
+                     + (d.reason == DC::kNoVoicedSpeech ? u8 ("kein klarer Stimmklang (Flüstern oder Rauschen).")
+                        : d.reason == DC::kTooMuchNoise ? u8 ("zu viel zischähnliches Geräusch für eine sichere Erkennung.")
+                        : d.reason == DC::kVowelsAffected ? u8 ("jede Absenkung würde auch Vokale treffen.")
+                        : u8 ("zu wenig sicher erkannte S-Laute (") + juce::String (d.events) + ")."));
+    }
     if (i.profile.clippedSamples > 0)
         tip.add (u8 ("Übersteuerte Samples am Eingang: ") + juce::String (i.profile.clippedSamples) + u8 (". Das lässt sich nicht reparieren, besser neu aufnehmen."));
     for (auto& w : warnings) tip.add (u8 ("Hinweis: ") + w);
