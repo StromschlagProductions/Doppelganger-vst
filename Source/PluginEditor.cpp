@@ -43,7 +43,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
               juce::Font (juce::FontOptions (17.0f, juce::Font::bold)), accent);
 
     body ("Doppelganger gleicht Sprecherspuren an neutrale Sprecherprofile aus einem Berliner Profi-Studio an und bringt sie auf die "
-          "Ziel-Lautheit. Takes aus verschiedenen Heimstudios, mit verschiedenen Mikrofonen und Räumen, klingen danach, als wären sie "
+          "Ziel-Lautheit anhand der gelernten Passage. Takes aus verschiedenen Heimstudios, mit verschiedenen Mikrofonen und Räumen, klingen danach, als wären sie "
           "in derselben Kabine aufgenommen worden. Lowcut, Angleich-EQ, Feinabstimmung, De-Esser und Leveler stecken in einem Plugin.");
 
     head ("SO ARBEITET ES");
@@ -57,7 +57,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
 
     head ("EINGANG LERNEN");
     body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme, auch bei sehr leisen, sauberen Aufnahmen. Es prüft selbst, ob sich Klangbild "
-          "und Lautstärke nicht mehr verändern, und hört dann von allein auf (frühestens nach 20 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
+          "und Lautstärke nicht mehr verändern, und hört dann von allein auf (frühestens nach 20 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Ausreichend leise Abschnitte zählen nicht zur erkannten Sprachdauer. Bei kurzen Takes bis zum Ende abspielen und „Done“ drücken. "
           "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
 
@@ -69,8 +69,8 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "helle Vokale, Atmer und Flüstern zählen nicht. Liegen die lauten S-Laute höchstens 12 dB unter den Vokalen (natürlich sind etwa 13 bis 16 dB), bleibt die Stärke bei 0 % "
           "und die Stimme unbearbeitet. Sonst wählt es die Frequenz nach der S-Energie dieser Stimme (4 bis 8 kHz) und die kleinste Stärke, die die S-Laute auf dieses Maß bringt, "
           "höchstens 60 % und nur, solange Vokale praktisch unberührt bleiben. Bei zu wenig S-Lauten, Flüstern oder viel Rauschen bleibt die Einstellung, wie sie ist.");
-    body ("Danach rechnet es die gelernte Passage im Hintergrund einmal durch die ganze Kette und misst die Lautheit am Ausgang nach. Was De-Esser, Leveler und EQ "
-          "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Nach jeder Regleränderung, auch am Lowcut, misst es neu. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen "
+    body ("Danach rechnet es den gespeicherten Lernmitschnitt im Hintergrund durch die ganze Kette und misst dessen Lautheit am Ausgang nach. Was De-Esser, Leveler und EQ "
+          "an der Lautheit verschieben, gleicht es aus (bis ±6 dB). Mit vorhandenem Lernmitschnitt misst es nach Regleränderungen, auch am Lowcut, neu. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen "
           "unter −1 dBFS und greift nur ein, wenn eine Spitze die Grenze wirklich überschreitet. Zwischen den Samples (True Peak) kann es knapp darüber liegen; "
           "der gemessene True Peak steht im Tooltip von AUTO.");
     body ("Die Zeile unter der Tonhöhe zeigt das Ergebnis: grün „geprüft“ mit der nachgemessenen Lautheit, orange ein Hinweis, wenn die Aufnahme etwas hat, "
@@ -113,24 +113,28 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Standard: alle Bänder 0 dB, Feinabstimmung aus, der Klang bleibt dann unverändert.");
     body ("In der Anzeige ziehen: waagerecht die Frequenz, senkrecht die Verstärkung (±12 dB). Das Mausrad ändert die Güte des Bands, Doppelklick setzt es auf 0 dB. Umschalt macht Ziehen und Mausrad feiner. "
           "Ziehen schaltet die Feinabstimmung automatisch ein. Die Regler darunter stellen dieselben Werte als Zahl ein.");
-    body ("Die Grundverstärkung rechnet die Feinabstimmung mit ein: Die Spur landet weiterhin auf der Ziel-Lautheit, der EQ ändert nur die Klangfarbe. Mit AUTO wird nach jeder Änderung neu nachgemessen.");
+    body ("Die Grundverstärkung berücksichtigt die geschätzte Lautheitswirkung der Feinabstimmung. Mit AUTO und vorhandenem Lernmitschnitt wird nach Änderungen erneut nachgemessen. Das Lautheitsziel gilt für diesen Mitschnitt.");
     body ("RESET unter dem AN/AUS-Schalter setzt alle fünf Bänder auf 0 dB, Standardfrequenzen und Q = 1 zurück. Der EQ bleibt an oder aus wie zuvor.");
 
     head ("LAUTHEIT");
-    body ("Mono und Stereo werden kanalrichtig nach BS.1770 gemessen: Die Energien von links und rechts werden addiert. "
-          "Die Grundverstärkung berücksichtigt die Kanalzahl; eine Stereo-Spur mit gleichem Signal auf beiden Kanälen benötigt rund 3 dB weniger Verstärkung als Mono. "
-          "Die Grundverstärkung kommt aus der gelernten Lautheit und bringt die Spur fest auf die Ziel-Lautheit (Standard −23 LUFS). "
-          "Mit AUTO wird sie zusätzlich nachgemessen: Das Plugin rechnet die gelernte Passage durch die ganze Kette und gleicht aus, was EQ, De-Esser und Leveler "
-          "an der Lautheit verschieben. Sie steht ab dem ersten Sample, egal wo die Wiedergabe startet.");
+    body ("Beim Lernen wird die integrierte Lautheit nach ITU-R BS.1770 / EBU R128 ermittelt. Frequenzen werden nach ihrer Lautheitswirkung gewichtet; "
+          "Stille und ausreichend leise Abschnitte werden über absolute und relative Messschwellen ausgeblendet. Lautere Atmer können mitgemessen werden. "
+          "In Stereo werden die Energien beider Kanäle addiert. Bei gleichem Signal links und rechts ist deshalb rund 3 dB weniger Verstärkung nötig als in Mono.");
+    body ("Die Grundverstärkung kommt aus der gelernten Lautheit. Beispiel: Von −30 auf −23 LUFS sind ohne weitere Klang- oder Dynamikänderung ungefähr +7 dB nötig. "
+          "Mit AUTO rechnet das Plugin den gespeicherten Lernmitschnitt durch die gesamte Kette einschließlich EQ, De-Esser, Leveler und Spitzenschutz, misst dessen Ausgang nach "
+          "und korrigiert die Verstärkung innerhalb seiner Grenzen. Standardziel: −23 LUFS. AUTO aus: Die Lautheitswirkung wird nur vorausberechnet.");
+    note ("Das Ziel gilt für den nachgemessenen Lernmitschnitt. Andere Sätze, spätere lautere oder leisere Abschnitte und andere Exportbereiche können abweichen. "
+          "Eine repräsentative Passage mit normaler Sprache lernen. Einzelne Wörter dürfen unterschiedlich laut sein; −23 LUFS ist kein Spitzenpegel von −23 dBFS. "
+          "Die grüne Prüfung beschreibt den Mitschnitt und die zugehörigen Einstellungen.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
-          "0 % = aus, 100 % = bis zu ±10 dB. In Pausen und bei Atmern hält er still. Bei jedem Wiedergabestart beginnt er neutral, genau wie beim Export.");
+          "0 % = aus, 100 % = bis zu ±10 dB. In ausreichend leisen Pausen hält er still. Er kann die integrierte Lautheit verändern; AUTO misst diese Wirkung am Lernmitschnitt nach. Bei jedem Wiedergabestart beginnt er neutral, genau wie beim Export. Die Grundverstärkung steht ab dem ersten Sample bereit.");
     body ("Messwert oben rechts in der Karte: die gemessene Lautheit des Ausgangs, integriert nach EBU R128, wie sie ein Loudness-Meter am Ende einer "
-          "Passage anzeigt (Pausen werden ausgeblendet). Die Messung beginnt bei jedem Wiedergabestart neu, ein Klick setzt sie sofort zurück. "
+          "Passage anzeigt (ausreichend leise Abschnitte werden ausgeblendet). Die Messung beginnt bei jedem Wiedergabestart neu, ein Klick setzt sie sofort zurück. "
           "Orange heißt: innerhalb von ±1 LU um das Ziel. Erst nach einigen Sekunden Sprache ist der Wert aussagekräftig.");
     note ("Oben im Klangbild steht zusätzlich MOMENTAN: die Lautheit der letzten 0,4 Sekunden. Sie springt mit der Sprache und fällt in Pausen ab, zum Prüfen des Ziels taugt nur der integrierte Wert.");
 
     head ("Allgemein");
-    body ("Doppelganger ist latenzfrei. Mit AUTO hält ein Spitzenschutz den Ausgang unter −1 dBFS (Sample-Spitze); ohne AUTO gibt es keinen, dann fängt der Limiter auf dem Master die Spitzen ab.");
+    body ("Doppelganger ist latenzfrei. Mit AUTO hält ein Spitzenschutz den Ausgang unter −1 dBFS (Sample-Spitze); ohne AUTO ist im Plugin kein Spitzenschutz aktiv.");
     body ("Look: Dunkel / Hell. Das Fenster ist am rechten unteren Rand skalierbar (50–300 %). Beides wird mit dem Projekt gespeichert.");
 
     head ("Idee und Konzept");
@@ -152,7 +156,7 @@ void IntegratedLoudness::set (float lufs, float seconds, float target)
     if (std::abs (lufs - value) < 0.05f && std::abs (target - goal) < 0.05f && (int) seconds == (int) secs) return;
     value = lufs; secs = seconds; goal = target;
     const int s = (int) seconds;
-    setTooltip (juce::String::fromUTF8 ("Gemessene Lautheit des Ausgangs, integriert nach EBU R128 (Pausen werden ausgeblendet), seit ")
+    setTooltip (juce::String::fromUTF8 ("Gemessene Lautheit des Ausgangs, integriert nach EBU R128 (ausreichend leise Abschnitte ausgeblendet), seit ")
         + juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2)
         + juce::String::fromUTF8 (" min. Beginnt bei jedem Wiedergabestart neu, Klick setzt sie sofort zurück."));
     repaint();
@@ -498,7 +502,7 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     content.addAndMakeVisible (forgetButton);
 
     autoButton.setClickingTogglesState (true);
-    autoButton.setTooltip (u8 ("Autopilot: stellt nach dem Lernen Angleichung und Lowcut selbst ein und misst die Lautheit der ganzen Kette nach."));
+    autoButton.setTooltip (u8 ("Autopilot: stellt nach dem Lernen Angleichung, Lowcut und De-Esser ein und misst die ganze Kette am gespeicherten Lernmitschnitt nach."));
     autoAtt = std::make_unique<APVTS::ButtonAttachment> (proc.apvts, "autopilot", autoButton);
     content.addAndMakeVisible (autoButton);
 
@@ -516,8 +520,8 @@ DoppelgangerEditor::DoppelgangerEditor (DoppelgangerProcessor& p) : AudioProcess
     setupKnob (deessFreqKnob, "deessFreq", u8 ("FREQUENZ"),
                u8 ("Ab hier sucht und bearbeitet der De-Esser die S-Laute. Mit „Listen“ abhören. Doppelklick: 5,5 kHz"), 5500.0);
     setupKnob (levelerKnob, "leveler", u8 ("LEVELER"),
-               u8 ("Sanfter Ausgleich leiser und lauter Passagen: 0 % = aus, 100 % = bis ±10 dB. Doppelklick: 50 %"), 50.0);
-    setupKnob (targetKnob, "target", u8 ("ZIEL"), u8 ("Ziel-Lautheit der Spur. Doppelklick: −23 LUFS"), -23.0);
+               u8 ("Langsamer Ausgleich leiser und lauter Passagen: 0 % = aus, 100 % = bis ±10 dB. Kann die integrierte Lautheit verändern; AUTO misst am Lernmitschnitt nach. Doppelklick: 50 %"), 50.0);
+    setupKnob (targetKnob, "target", u8 ("ZIEL"), u8 ("Ziel für die integrierte Lautheit des Lernmitschnitts. Andere Abschnitte können abweichen. Doppelklick: −23 LUFS"), -23.0);
 
     deessOnButton.setClickingTogglesState (true);
     deessOnButton.setTooltip (u8 ("De-Esser an- und ausschalten, zum Vergleich"));
@@ -641,7 +645,7 @@ void DoppelgangerEditor::updateAutopilotReport()
 {
     const auto& i = shown;
     autoLine = {}; autoState = 0;
-    juce::StringArray tip { u8 ("Autopilot: stellt nach dem Lernen Angleichung und Lowcut selbst ein und misst die Lautheit der ganzen Kette nach.") };
+    juce::StringArray tip { u8 ("Autopilot: stellt nach dem Lernen Angleichung, Lowcut und De-Esser ein und misst die ganze Kette am gespeicherten Lernmitschnitt nach.") };
     if (proc.isLearning() || ! i.profile.valid || i.needsRelearnForLoudness)
     {
         autoTip = tip.joinIntoString ("\n");
@@ -671,7 +675,7 @@ void DoppelgangerEditor::updateAutopilotReport()
              + juce::String (juce::roundToInt (proc.apvts.getRawParameterValue ("lowcut")->load())) + " Hz.");
     tip.add (u8 ("Färbung durch Mikrofon und Raum: im Mittel ") + db1 (i.colourBeforeDb) + u8 (" dB, nach dem Angleich ") + db1 (i.colourAfterDb) + " dB.");
     if (i.calibration.ok)
-        tip.add (u8 ("Lautheit nachgemessen: ") + db1 (i.calibration.outLufs) + u8 (" LUFS (Nachkorrektur ")
+        tip.add (u8 ("Lernmitschnitt nachgemessen: ") + db1 (i.calibration.outLufs) + u8 (" LUFS (Nachkorrektur ")
                  + (i.calibration.calibDb >= 0 ? "+" : "") + db1 (i.calibration.calibDb) + u8 (" dB), Spitzen ") + db1 (i.calibration.peakDb) + " dBFS"
                  + (i.calibration.truePeakDb > -99.0f ? u8 (" (True Peak ") + db1 (i.calibration.truePeakDb) + " dBTP)" : juce::String())
                  + (i.calibration.guardDb > 0.05f ? u8 (", Spitzenschutz bis ") + db1 (i.calibration.guardDb) + " dB." : u8 (", Spitzenschutz nicht nötig.")));
