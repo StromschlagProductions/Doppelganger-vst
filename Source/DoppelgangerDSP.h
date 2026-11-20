@@ -554,6 +554,15 @@ public:
     }
 
     // Integrierte Lautheit nach BS.1770 aus Blockleistungen (absolutes Tor -70, relatives Tor -10 LU)
+    // Integrierte Lautheit nur der letzten Sekunden (gleiches Gating, auf das Fenster bezogen): zeigt, ob die Spur
+    // gerade lauter oder leiser wird als bisher. Nur Message-Thread.
+    float recentLoudness (double seconds) const
+    {
+        const size_t n = std::min (blocks.size(), (size_t) std::max (1.0, seconds * 10.0));   // Bloecke im 100-ms-Raster
+        const std::vector<double> last (blocks.end() - (long) n, blocks.end());
+        return integratedLoudness (last);
+    }
+
     static float integratedLoudness (const std::vector<double>& blockPow)
     {
         auto lufs = [] (double pw) { return -0.691 + 10.0 * std::log10 (pw + 1e-20); };
@@ -773,6 +782,8 @@ struct ConvergenceTracker
     static constexpr double kCurveTolDb = 0.35;   // mittlere Abweichung zum Stand von vor etwa 1 s
     static constexpr double kPitchTol = 0.06;     // 6 %
     static constexpr double kLoudTolLu = 0.5;
+    static constexpr double kRecentTolLu = 1.0;   // die letzten Sekunden duerfen so weit vom Mittel abweichen
+    static constexpr double kRecentSeconds = 6.0;
     static constexpr int kNeeded = 3;             // so oft hintereinander stabil
 
     LearnedProfile prev;
@@ -781,8 +792,10 @@ struct ConvergenceTracker
 
     void reset() { prev = LearnedProfile(); stable = 0; lastCurveDist = 99.0; }
 
-    // true, wenn das Profil seit mehreren Pruefungen stabil ist
-    bool update (const LearnedProfile& p)
+    // true, wenn das Profil seit mehreren Pruefungen stabil ist.
+    // recentLufs: Lautheit der letzten kRecentSeconds (Learner::recentLoudness). Wird die Spur gerade deutlich
+    // lauter oder leiser, ist die gelernte Lautheit noch nicht repraesentativ, auch wenn sie sich kaum bewegt.
+    bool update (const LearnedProfile& p, float recentLufs = -100.0f)
     {
         if (! p.valid) return false;
         if (prev.valid)
@@ -791,7 +804,9 @@ struct ConvergenceTracker
             const bool pitchOk = (prev.pitchHz <= 0 || p.pitchHz <= 0) ? true
                                  : std::abs (p.pitchHz - prev.pitchHz) / prev.pitchHz < kPitchTol;
             const bool loudOk = std::abs (p.loudnessLufs - prev.loudnessLufs) < kLoudTolLu;
-            stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk) ? stable + 1 : 0;
+            const bool recentOk = recentLufs <= -70.0f || ! std::isfinite (recentLufs)
+                                  || std::abs (recentLufs - p.loudnessLufs) < kRecentTolLu;
+            stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk && recentOk) ? stable + 1 : 0;
         }
         prev = p;
         return stable >= kNeeded;

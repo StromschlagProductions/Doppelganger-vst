@@ -3,6 +3,7 @@
 ## Unveröffentlicht
 
 - **Behoben:** Bei Stereo-Spuren rechnete die Nachmessung die Kette einkanalig mit 0,5·(L+R). Bei hohem Ziel und stark eingreifendem Spitzenschutz passte sie dann nicht zum Ausgang (z. B. Ziel −16, L=R: −16,0 gemeldet, −15,2 LUFS tatsächlich). Mitgeschnitten werden jetzt beide Kanäle getrennt; die Nachmessung rechnet Lautheit und gekoppelten Spitzenschutz wie der Stereo-Ausgang. Auch der gemeldete Spitzenschutz-Wert stimmt damit für Stereo.
+- **Lernen endet nicht mehr zu früh für die Lautheit:** Automatisch aufgehört wird frühestens nach 20 statt nach etwa 13 Sekunden Sprache, und nur, wenn die letzten 6 Sekunden höchstens 1 LU vom bisherigen Mittel abweichen. Vorher konnte der spätere Teil der Spur danebenliegen (105_Sheriff: −23,3 statt −23,0 LUFS; Folge mit Pegelsprung: −22,6). Jetzt −23,0 bzw. −23,1. Kurze Spuren mit weniger als 20 s Sprache: bis zum Ende abspielen und **Done** drücken.
 - Mono unverändert. In Stereo-Projekten aus älteren Versionen gilt die gespeicherte Nachmessung nicht mehr als „geprüft“; einmal neu lernen.
 
 ## 2.1 – 20. November 2026

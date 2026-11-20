@@ -169,6 +169,22 @@ void learningTests()
         dop::ConvergenceTracker tracker;
         CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (! tracker.update (p)); CHECK (tracker.update (p));
         tracker.reset(); CHECK (! tracker.update (p));
+        // Werden die letzten Sekunden deutlich lauter oder leiser als das Mittel, gilt das Profil nicht als stabil
+        tracker.reset();
+        for (int i = 0; i < 6; ++i) CHECK (! tracker.update (p, p.loudnessLufs + 2.0f));
+        CHECK (! tracker.update (p, p.loudnessLufs + 0.5f)); CHECK (! tracker.update (p, p.loudnessLufs - 0.5f));
+        CHECK (tracker.update (p, p.loudnessLufs + 0.5f));
+        CHECK (! tracker.update (p, p.loudnessLufs - 1.5f));
+        {   // Lautheit der letzten Sekunden: 10 s leise, dann 6 s um 6 dB lauter
+            const double rfs = 48000; auto v1 = voice (rfs, 10.0), v2 = voice (rfs, 6.0);
+            for (auto& s2 : v2) s2 *= 2.0f;
+            dop::Learner R; R.prepare (rfs); R.push (v1.data(), (int) v1.size());
+            const float quiet = R.recentLoudness (6.0);
+            R.push (v2.data(), (int) v2.size());
+            const float loud = R.recentLoudness (6.0);
+            CHECK (std::abs (loud - quiet - 6.02f) < 0.3f && R.finish().loudnessLufs < loud - 1.0f);
+            dop::Learner E; E.prepare (rfs); CHECK (E.recentLoudness (6.0) <= -99.0f);   // ohne Material
+        }
         p.curveDb[0] = std::numeric_limits<float>::quiet_NaN(); CHECK (! dop::isValidProfile (p));
     }
 }

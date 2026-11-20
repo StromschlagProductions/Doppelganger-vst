@@ -81,8 +81,8 @@ gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darun
 ## Bedienung
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
-2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich das Klangbild nicht mehr verändert, und hört dann von allein
-   auf (frühestens nach 10, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
+2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich Klangbild und Lautstärke nicht mehr verändern, und hört dann von allein
+   auf (frühestens nach 20, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
 3. Das Plugin zeigt groß an, welche Stimme es erkannt hat (**ERKANNT: Tief (Mann) · 118 Hz**). Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
    darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
 4. Mit **AUTO** (Standard) ist damit alles erledigt. Der Autopilot setzt Angleichung, Lowcut und De-Esser, misst die Lautheit nach und zeigt

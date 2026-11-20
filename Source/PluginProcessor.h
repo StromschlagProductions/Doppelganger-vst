@@ -52,7 +52,9 @@ public:
 
     static constexpr float kMinLearnSeconds = 4.0f;    // weniger Sprache reicht nicht fuer ein verlaessliches Klangbild
     static constexpr float kAutoStopSeconds = 30.0f;   // danach beendet das Plugin das Lernen spaetestens selbst
-    static constexpr float kConvergeCheckFromSeconds = 10.0f;   // ab hier prueft es jede Sekunde, ob es genug gelernt hat
+    // ab hier prueft es jede Sekunde, ob es genug gelernt hat; drei stabile Pruefungen: fruehestens nach 20 s Sprache.
+    // Kuerzer reicht fuer das Klangbild, aber nicht fuer eine verlaessliche Lautheit der ganzen Spur.
+    static constexpr float kConvergeCheckFromSeconds = 17.0f;
     static constexpr double kCaptureSeconds = 40.0;  // so viel des Gelernten wird fuer die Nachmessung behalten
     bool isAutopilotOn() const { return pAutopilot->load() > 0.5f; }
     void waitForCalibration (int timeoutMs);   // fuer Tests: wartet, bis die Nachmessung fertig uebernommen ist

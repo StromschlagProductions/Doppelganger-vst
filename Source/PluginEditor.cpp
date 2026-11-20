@@ -56,8 +56,8 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "Die Aufnahmen sollten sauber und trocken sein, Dereverb und Denoise gehören vor das Plugin.");
 
     head ("EINGANG LERNEN");
-    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme, auch bei sehr leisen, sauberen Aufnahmen. Es prüft selbst, ob das Klangbild "
-          "sich nicht mehr verändert, und hört dann von allein auf (frühestens nach 10 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
+    body ("„Learn“ drücken und die Spur abspielen. Das Plugin misst dabei Klangbild, Tonhöhe und Lautheit der Stimme, auch bei sehr leisen, sauberen Aufnahmen. Es prüft selbst, ob sich Klangbild "
+          "und Lautstärke nicht mehr verändern, und hört dann von allein auf (frühestens nach 20 Sekunden Sprache, spätestens nach 30). Mit „Done“ geht es früher (mindestens 4 Sekunden Sprache). Pausen zählen nicht mit. "
           "Das Gelernte wird mit dem Projekt gespeichert. „Clear“ löscht es wieder.");
     body ("Am besten eine Stelle lernen, an der die Figur normal spricht, nicht nur schreit oder flüstert.");
 

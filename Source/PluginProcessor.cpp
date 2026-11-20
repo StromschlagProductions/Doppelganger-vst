@@ -301,11 +301,13 @@ void DoppelgangerProcessor::timerCallback()
         {
             nextConvergeCheck = sec + 1.0f;
             dop::LearnedProfile snap;
+            float recent = -100.0f;
             {
                 const juce::ScopedLock sl (stateLock);
                 snap = learner.finish();
+                recent = learner.recentLoudness (dop::ConvergenceTracker::kRecentSeconds);
             }
-            enough = convergence.update (snap);
+            enough = convergence.update (snap, recent);
         }
         if (enough)
         {
