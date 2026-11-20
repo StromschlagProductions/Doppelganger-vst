@@ -1,5 +1,7 @@
 # Mono-/Stereo-Lautheit – Prüfung für 1.4.1
 
+> Historischer Prüfbericht für Version 1.4.1. Zur aktuellen AUTO-Nachmessung, zum Lernmitschnitt und zu den Grenzen des Lautheitsziels siehe [Lautheit verstehen](../README.md#lautheit-verstehen).
+
 ## Ursache
 
 Für L/R gilt nach BS.1770 `P = P_L + P_R`. Der bisherige Code verwendete `(P_L + P_R) / 2`. Das betrifft Momentanwert, integrierte Anzeige und die Messung, auf der der Leveler beruht. Bei Dual-Mono beträgt die Differenz `10 log10(2) = 3,0103 LU`. Ein energiegleich auf beide Kanäle verteiltes Signal ist dagegen so laut wie das Mono-Signal.

@@ -41,7 +41,7 @@ ausgewogen, ohne Färbung durch Raum oder besonderes Mikrofon. So klingt eine St
 Gespeichert ist davon nur die Klangkurve, keine Aufnahme.
 
 **Das Lernen.** Beim Lernen hört DOPPELGANGER der Spur zu und misst drei Dinge: das mittlere Klangbild der Stimme
-(welche Frequenzen stark oder schwach sind), die Tonhöhe und die Lautheit. Pausen und Atmer zählen nicht mit. Aus der
+(welche Frequenzen stark oder schwach sind), die Tonhöhe und die Lautheit. Ausreichend leise Abschnitte werden über Messschwellen ausgeblendet. Aus der
 Tonhöhe wählt es die passende Vorlage.
 
 **Das Angleichen.** Aus dem Unterschied zwischen gelernter Stimme und Vorlage berechnet das Plugin eine
@@ -50,10 +50,10 @@ Färbung von Mikrofon und Raum, nicht die Stimme selbst. Ein Bass bleibt ein Bas
 klingen nur, als stünden sie vor demselben Mikrofon. Wie weit das geht, bestimmt der Regler **Angleichung**. Welcher
 Frequenzbereich überhaupt angeglichen wird, legen zwei Begrenzer im Klangbild fest; außerhalb bleibt der Take unverändert.
 
-**Der Autopilot.** Mit **AUTO** (Standard) muss man nach dem Lernen nichts mehr beurteilen. Die Angleichung wird so gewählt, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum bleibt (45–85 %). Der Lowcut folgt der Tonhöhe (80–110 Hz). Den De-Esser stellt es aus sicher erkannten Zischlauten ein ([Prüfung](docs/DEESSER_AUTO_2.1.md)): Liegen die lauten S-Laute höchstens 12 dB unter den Vokalen, bleibt die Stärke bei 0 % und die Stimme unbearbeitet; sonst wählt es Frequenz (4–8 kHz) und die kleinste Stärke, die das erreicht (höchstens 60 %, Vokale praktisch unberührt). Bei zu wenig S-Lauten oder Flüstern bleibt die Einstellung, wie sie ist. Danach rechnet das Plugin die gelernte Passage im Hintergrund durch die ganze Kette und misst die Lautheit am Ausgang nach. So gleicht es aus, was De-Esser, Leveler und EQ an der Lautheit verschieben. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen unter −1 dBFS; der True Peak (dBTP) wird mitgemessen und angezeigt. In der Karte EINGANG steht dann grün „geprüft“ oder orange ein Hinweis auf das, was kein Regler reparieren kann: Übersteuerung, Rauschen, sehr laute Spitzen.
+**Der Autopilot.** Mit **AUTO** (Standard) werden die technischen Einstellungen nach dem Lernen automatisch gewählt. Die Angleichung wird so gewählt, dass im Mittel höchstens 1 dB Färbung von Mikrofon und Raum bleibt (45–85 %). Der Lowcut folgt der Tonhöhe (80–110 Hz). Den De-Esser stellt es aus sicher erkannten Zischlauten ein ([Prüfung](docs/DEESSER_AUTO_2.1.md)): Liegen die lauten S-Laute höchstens 12 dB unter den Vokalen, bleibt die Stärke bei 0 % und die Stimme unbearbeitet; sonst wählt es Frequenz (4–8 kHz) und die kleinste Stärke, die das erreicht (höchstens 60 %, Vokale praktisch unberührt). Bei zu wenig S-Lauten oder Flüstern bleibt die Einstellung, wie sie ist. Danach rechnet das Plugin den gespeicherten Lernmitschnitt im Hintergrund durch die ganze Kette und misst dessen Lautheit am Ausgang nach. So gleicht es aus, was De-Esser, Leveler und EQ an der Lautheit verschieben. Ein latenzfreier Spitzenschutz hält die Sample-Spitzen unter −1 dBFS; der True Peak (dBTP) wird mitgemessen und angezeigt. In der Karte EINGANG steht dann grün „geprüft“ oder orange ein Hinweis auf das, was kein Regler reparieren kann: Übersteuerung, Rauschen, sehr laute Spitzen.
 
 **Der Weg durchs Plugin.** Lowcut → Angleich-EQ → Feinabstimmung → De-Esser → Grundverstärkung und Leveler → Spitzenschutz (mit AUTO).
-Am Ende steht die Spur auf der Ziel-Lautheit (Standard −23 LUFS), sanft geglättet und ohne harte S-Laute. Alles
+Die Lautheit wird anhand des Gelernten auf das Ziel eingestellt (Standard −23 LUFS); andere Abschnitte können davon abweichen. Alles
 arbeitet latenzfrei und ab dem ersten Sample, egal wo die Wiedergabe startet.
 
 **Die Feinabstimmung (im Plugin: EQ).** Wer nach dem Angleich noch etwas nachschärfen möchte, schaltet fünf frei einstellbare
@@ -82,18 +82,18 @@ gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darun
 
 1. Plugin auf die Sprecherspur legen (mono oder stereo).
 2. **Learn** drücken und die Spur abspielen. Das Plugin prüft selbst, ob sich Klangbild und Lautstärke nicht mehr verändern, und hört dann von allein
-   auf (frühestens nach 20, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit.
+   auf (frühestens nach 20, spätestens nach 30 Sekunden Sprache). Man kann auch vorher **Done** drücken (mindestens 4 Sekunden Sprache). Gemessen werden Klangbild, Tonhöhe und Lautheit. Bei kurzen Takes mit weniger als 20 Sekunden Sprache bis zum Ende abspielen und **Done** drücken.
 3. Das Plugin zeigt groß an, welche Stimme es erkannt hat (**ERKANNT: Tief (Mann) · 118 Hz**). Bei **Stimmlage: Auto** wählt das Plugin die passende Referenz (unter 160 Hz Mann, bis 225 Hz Frau mittel,
    darüber Frau hoch). Das Gelernte wird mit dem Projekt gespeichert.
-4. Mit **AUTO** (Standard) ist damit alles erledigt. Der Autopilot setzt Angleichung, Lowcut und De-Esser, misst die Lautheit nach und zeigt
+4. Mit **AUTO** (Standard) die Nachmessung abwarten. Der Autopilot setzt Angleichung, Lowcut und De-Esser, misst den Lernmitschnitt nach und zeigt
    **Autopilot: geprüft, −23,0 LUFS**. Erscheint dort stattdessen ein oranger Hinweis (übersteuert, Rauschen, sehr laute Spitzen),
-   liegt das Problem in der Aufnahme selbst. Nachstellen geht jederzeit (z. B. den De-Esser nach Gehör); danach misst der Autopilot von selbst neu.
+   liegt das Problem in der Aufnahme selbst. Nachstellen geht jederzeit (z. B. den De-Esser nach Gehör); danach misst der Autopilot mit vorhandenem Lernmitschnitt von selbst neu. Nach erneutem Laden eines Projekts ist für eine neue Prüfung nach Regleränderungen erneutes Lernen nötig.
 
 ## Regler (alle automatisierbar)
 
 | Bereich | Regler | Wirkung |
 |---|---|---|
-| Klang | **AUTO** | Autopilot an/aus (Standard an). Setzt nach dem Lernen Angleichung und Lowcut, misst die Lautheit der ganzen Kette nach, Spitzenschutz bei −1 dBFS, Prüfbericht in der Karte EINGANG. Aus = Verhalten wie 1.7. |
+| Klang | **AUTO** | Autopilot an/aus (Standard an). Setzt nach dem Lernen Angleichung, Lowcut und De-Esser, misst die Lautheit der ganzen Kette am gespeicherten Lernmitschnitt nach, Spitzenschutz bei −1 dBFS, Prüfbericht in der Karte EINGANG. Aus = Verhalten wie 1.7. |
 | Klang | **Angleichung** | Wie stark die Klangfarbe an die Referenz angeglichen wird. Standard 60 %: Mikrofon und Raum werden angeglichen, die eigene Stimmfarbe bleibt. Nur die Klangform, nie der Pegel; höchstens ±9 dB. |
 | Klang | **Lowcut** | 24 dB/Oktave, 20–200 Hz (ganz links = aus), Standard 80 Hz. |
 | Klang | **Angleich-Bereich** | Zwei Begrenzer im Klangbild (orange Linien mit Griff unten): Angeglichen wird nur dazwischen, außerhalb bleibt der Take unverändert, mit weichem Übergang über eine Drittel-Oktave. Links 20 Hz – 2 kHz (Standard: keine Grenze), rechts 1 – 20 kHz (Standard 12 kHz, weil die Referenzen darüber nicht mehr verlässlich sind). Ziehen, Umschalt = fein, Doppelklick = Standard. Beispiel: rechts auf 8–10 kHz, damit die Luft einer Stimme erhalten bleibt; links auf 100–150 Hz, damit der Nahbesprechungs-Bass unangetastet bleibt. |
@@ -102,20 +102,31 @@ gelerntem Eingang (blau), Korrektur (orange) und dem Ausgang live (grün). Darun
 | De-Esser | **Frequenz** | 3–10 kHz, Standard 5,5 kHz: ab hier sucht und bearbeitet der De-Esser die S-Laute. |
 | De-Esser | **Anzeige** | Balken = aktuelle Absenkung (0 bis 12 dB, Strich = letzte Spitze), daneben ein Verlauf der letzten Sekunden: jeder Ausschlag ist ein erkannter und gedämpfter S-Laut. |
 | De-Esser | **LISTEN** | Spielt die tatsächlich entfernten Anteile ab (Differenz vor/nach der Absenkung). Ohne Absenkung bleibt es still. Aktiv zeigt der Knopf **DIFF**; für den normalen Klang wieder ausschalten. |
-| Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In Pausen und bei Atmern hält er still, die Gesamtlautheit ändert er nicht. |
-| Lautheit | **Ziel** | −30 bis −14 LUFS, Standard −23 LUFS. |
-| Lautheit | **Messwert** | Oben rechts in der Karte: gemessene Lautheit des Ausgangs, integriert nach EBU R128 (Pausen ausgeblendet), wie ein Loudness-Meter am Ende einer Passage. Beginnt bei jedem Wiedergabestart neu, Klick = zurücksetzen. Orange = innerhalb ±1 LU um das Ziel. |
+| Lautheit | **Leveler** | Fährt sanft wie ein Fader und gleicht leise und laute Passagen an: 0 % = aus, 100 % = bis ±10 dB. In ausreichend leisen Pausen hält er still. Er kann die integrierte Lautheit verändern; AUTO misst diese Wirkung am Lernmitschnitt nach und kompensiert sie innerhalb der Korrekturgrenzen. |
+| Lautheit | **Ziel** | Ziel für die integrierte Lautheit des Lernmitschnitts: −30 bis −14 LUFS, Standard −23 LUFS. |
+| Lautheit | **Messwert** | Oben rechts in der Karte: gemessene Lautheit des Ausgangs, integriert nach EBU R128 (ausreichend leise Abschnitte ausgeblendet), wie ein Loudness-Meter am Ende einer Passage. Beginnt bei jedem Wiedergabestart neu, Klick = zurücksetzen. Orange = innerhalb ±1 LU um das Ziel. |
 | EQ | **AN / AUS** | Schaltet die fünf Bänder der Feinabstimmung nach dem Angleich zu. Standard aus; aus oder mit allen Bändern auf 0 dB klingt die Spur unverändert. Oben rechts im Klangbild zeigt **EQ AN** (orange) oder **EQ AUS** (grau) den Zustand. |
 | EQ | **Band 1–5** | Frequenz 40 Hz – 20 kHz, Verstärkung ±12 dB, Güte 0,3 – 8 (klein = breit). Standard 100 Hz, 300 Hz, 1 kHz, 3 kHz, 8 kHz, alle 0 dB. Auch direkt im Klangbild: Punkt ziehen (waagerecht Frequenz, senkrecht Verstärkung), Mausrad = Güte, Doppelklick = 0 dB. Umschalt beim Ziehen oder Scrollen = Feinjustierung. Beim Überfahren zeigt ein Tooltip Frequenz, Pegel und Q. |
 
-Die **Grundverstärkung** kommt aus der gelernten Lautheit und bringt die Spur fest auf das Ziel. Sie steht ab dem
-ersten Sample, egal an welcher Stelle die Wiedergabe startet. Mit AUTO wird sie nach dem Lernen nachgemessen und korrigiert.
-DOPPELGANGER ist **latenzfrei**. Mit AUTO hält ein Spitzenschutz die Sample-Spitzen unter −1 dBFS (kein True-Peak-Limiter: zwischen den Samples kann die Spitze knapp darüber liegen, der Prüfbericht zeigt den gemessenen True Peak); ohne AUTO gibt es
-keinen, dann fängt der Limiter auf dem Master die Spitzen ab.
+## Lautheit verstehen
 
-Die Grundverstärkung rechnet die Feinabstimmung mit ein: Hebt man Bänder an, bleibt die Spur trotzdem auf dem Ziel, nur die Klangfarbe ändert sich.
+DOPPELGANGER ermittelt beim Lernen die **integrierte Lautheit** nach ITU-R BS.1770 / EBU R128. Dabei werden Frequenzen nach ihrer Lautheitswirkung gewichtet und in Stereo die Energien beider Kanäle addiert. Stille und ausreichend leise Abschnitte werden durch absolute und relative Messschwellen ausgeblendet. Lautere Atmer können mitgemessen werden. Der Wert beschreibt einen längeren Abschnitt; einzelne Wörter müssen nicht dieselbe Lautheit haben.
 
-**Klangbild:** Die Legende über der Anzeige zeigt zu jedem Namen ein Farbmuster.
+Die **Grundverstärkung** wird aus der gelernten Lautheit berechnet. Beispiel: Von −30 auf −23 LUFS sind ohne weitere Klang- oder Dynamikänderung ungefähr +7 dB nötig. Mit **AUTO** rechnet das Plugin den gespeicherten Lernmitschnitt anschließend durch Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, Leveler und Spitzenschutz. Es misst den Ausgang nach und korrigiert die Verstärkung innerhalb seiner Grenzen. AUTO aus: Die Lautheitswirkung wird nur vorausberechnet.
+
+**Das Ziel gilt für den nachgemessenen Lernmitschnitt.** Andere Sätze, spätere lautere oder leisere Abschnitte und anders gewählte Exportbereiche können eine andere integrierte Lautheit ergeben. Eine repräsentative Passage mit normaler Sprache lernen; kurze Takes bis zum Ende abspielen und mit **Done** abschließen. Die grüne Prüfung beschreibt die nachgemessene Passage und die dazugehörigen Einstellungen.
+
+Der **Leveler** gleicht langsame Pegelunterschiede aus und kann die integrierte Lautheit verändern. AUTO berücksichtigt seine Wirkung bei der Nachmessung. Einzelne Wörter und Spitzen dürfen weiterhin lauter sein: **−23 LUFS ist kein Spitzenpegel von −23 dBFS.**
+
+Die berechnete Grundverstärkung steht ab dem ersten Sample bereit. Der Leveler beginnt bei jedem Wiedergabestart neutral; der integrierte Messwert bezieht sich auf den jeweils abgespielten Abschnitt.
+
+DOPPELGANGER ist **latenzfrei**. Mit AUTO hält ein Spitzenschutz die Sample-Spitzen unter −1 dBFS (kein True-Peak-Limiter: zwischen den Samples kann die Spitze knapp darüber liegen, der Prüfbericht zeigt den gemessenen True Peak); ohne AUTO ist im Plugin kein Spitzenschutz aktiv.
+
+Die Grundverstärkung berücksichtigt die geschätzte Lautheitswirkung der Feinabstimmung. Mit AUTO und vorhandenem Lernmitschnitt wird nach EQ-Änderungen erneut nachgemessen. Die Aussage zum Lautheitsziel bezieht sich auch hier auf diesen Mitschnitt.
+
+## Klangbild
+
+Die Legende über der Anzeige zeigt zu jedem Namen ein Farbmuster.
 
 - **REFERENZ** (grau): das Ziel, die gewählte neutrale Referenzstimme.
 - **EINGANG (gelernt)** (blau): die beim Lernen gemessene Klangform der Spur. Sie steht fest, denn die Korrektur richtet sich nur nach ihr, nicht nach dem Moment.
