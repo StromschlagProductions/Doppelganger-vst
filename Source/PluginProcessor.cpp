@@ -301,13 +301,13 @@ void DoppelgangerProcessor::timerCallback()
         {
             nextConvergeCheck = sec + 1.0f;
             dop::LearnedProfile snap;
-            float recent = -100.0f;
+            float recentShift = std::numeric_limits<float>::quiet_NaN();
             {
                 const juce::ScopedLock sl (stateLock);
                 snap = learner.finish();
-                recent = learner.recentLoudness (dop::ConvergenceTracker::kRecentSeconds);
+                recentShift = learner.recentLoudnessShift (dop::ConvergenceTracker::kRecentSeconds);
             }
-            enough = convergence.update (snap, recent);
+            enough = convergence.update (snap, recentShift);
         }
         if (enough)
         {
@@ -900,13 +900,15 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
         // Derselbe Zustand noch einmal geladen (Undo, Preset-Vergleich, Host-Rundreise): gelerntes Audio und
         // ausstehende Autopilot-Schritte behalten, sonst gilt das Profil als aus einem Projekt geladen.
         bool sameProfile = p.valid && info.profile.valid && std::abs (p.loudnessLufs - info.profile.loudnessLufs) < 1e-3f
-                           && std::abs (p.pitchHz - info.profile.pitchHz) < 1e-3f;
+                           && std::abs (p.pitchHz - info.profile.pitchHz) < 1e-3f && p.loudnessChannels == info.profile.loudnessChannels;
         for (size_t k = 0; sameProfile && k < p.curveDb.size(); ++k)   // gespeichert mit drei Nachkommastellen
             sameProfile = std::abs (p.curveDb[k] - info.profile.curveDb[k]) < 1e-3f;
         info.profile = p;
         info.message = {};
         if (! sameProfile)
         {
+            ++calibRequestId;   // laufende Nachmessung/De-Esser-Wahl gehoert zum alten Profil: Ergebnis verwerfen
+            info.calibrationPending = false;
             calibAudio.reset();
             autoApplyPending = false;
             deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;

@@ -16,6 +16,7 @@
 #include <complex>
 #include <cstring>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -264,7 +265,8 @@ struct CapturedAudio
     {
         if (! stereo()) return left;
         std::vector<float> m (left.size());
-        for (size_t i = 0; i < m.size(); ++i) m[i] = 0.5f * (left[i] + right[i]);
+        const size_t both = std::min (left.size(), right.size());   // gleich lang erwartet; sonst nie ueber das Ende lesen
+        for (size_t i = 0; i < m.size(); ++i) m[i] = i < both ? 0.5f * (left[i] + right[i]) : left[i];
         return m;
     }
 };
@@ -554,13 +556,25 @@ public:
     }
 
     // Integrierte Lautheit nach BS.1770 aus Blockleistungen (absolutes Tor -70, relatives Tor -10 LU)
-    // Integrierte Lautheit nur der letzten Sekunden (gleiches Gating, auf das Fenster bezogen): zeigt, ob die Spur
-    // gerade lauter oder leiser wird als bisher. Nur Message-Thread.
+    // Integrierte Lautheit nur der letzten Sekunden (gleiches Gating, auf das Fenster bezogen). Nur Message-Thread.
     float recentLoudness (double seconds) const
     {
         const size_t n = std::min (blocks.size(), (size_t) std::max (1.0, seconds * 10.0));   // Bloecke im 100-ms-Raster
         const std::vector<double> last (blocks.end() - (long) n, blocks.end());
         return integratedLoudness (last);
+    }
+
+    // Wird die Spur gerade lauter oder leiser? Lautheit der letzten Sekunden gegen alles davor (ohne das Fenster,
+    // sonst verduennt es den Unterschied). NaN: noch kein Material davor. Ohne messbare Sprache in einem der beiden
+    // Teile ein grosser Wert, damit das nie als stabil gilt. Nur Message-Thread.
+    float recentLoudnessShift (double seconds) const
+    {
+        const size_t n = (size_t) std::max (1.0, seconds * 10.0);
+        if (blocks.size() <= n) return std::numeric_limits<float>::quiet_NaN();
+        const std::vector<double> earlier (blocks.begin(), blocks.end() - (long) n), last (blocks.end() - (long) n, blocks.end());
+        const float e = integratedLoudness (earlier), r = integratedLoudness (last);
+        if (e <= -70.0f || r <= -70.0f) return 100.0f;
+        return r - e;
     }
 
     static float integratedLoudness (const std::vector<double>& blockPow)
@@ -782,7 +796,7 @@ struct ConvergenceTracker
     static constexpr double kCurveTolDb = 0.35;   // mittlere Abweichung zum Stand von vor etwa 1 s
     static constexpr double kPitchTol = 0.06;     // 6 %
     static constexpr double kLoudTolLu = 0.5;
-    static constexpr double kRecentTolLu = 1.0;   // die letzten Sekunden duerfen so weit vom Mittel abweichen
+    static constexpr double kRecentTolLu = 1.0;   // die letzten Sekunden duerfen so weit vom Material davor abweichen
     static constexpr double kRecentSeconds = 6.0;
     static constexpr int kNeeded = 3;             // so oft hintereinander stabil
 
@@ -793,9 +807,9 @@ struct ConvergenceTracker
     void reset() { prev = LearnedProfile(); stable = 0; lastCurveDist = 99.0; }
 
     // true, wenn das Profil seit mehreren Pruefungen stabil ist.
-    // recentLufs: Lautheit der letzten kRecentSeconds (Learner::recentLoudness). Wird die Spur gerade deutlich
+    // recentShiftLu: Learner::recentLoudnessShift (kRecentSeconds); NaN = nicht pruefen. Wird die Spur gerade deutlich
     // lauter oder leiser, ist die gelernte Lautheit noch nicht repraesentativ, auch wenn sie sich kaum bewegt.
-    bool update (const LearnedProfile& p, float recentLufs = -100.0f)
+    bool update (const LearnedProfile& p, float recentShiftLu = std::numeric_limits<float>::quiet_NaN())
     {
         if (! p.valid) return false;
         if (prev.valid)
@@ -804,8 +818,7 @@ struct ConvergenceTracker
             const bool pitchOk = (prev.pitchHz <= 0 || p.pitchHz <= 0) ? true
                                  : std::abs (p.pitchHz - prev.pitchHz) / prev.pitchHz < kPitchTol;
             const bool loudOk = std::abs (p.loudnessLufs - prev.loudnessLufs) < kLoudTolLu;
-            const bool recentOk = recentLufs <= -70.0f || ! std::isfinite (recentLufs)
-                                  || std::abs (recentLufs - p.loudnessLufs) < kRecentTolLu;
+            const bool recentOk = std::isnan (recentShiftLu) || std::abs (recentShiftLu) < kRecentTolLu;
             stable = (lastCurveDist < kCurveTolDb && pitchOk && loudOk && recentOk) ? stable + 1 : 0;
         }
         prev = p;
@@ -1107,6 +1120,7 @@ public:
         ride1 = ride2 = 0.0;
         staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;   // sofort richtig, kein Einschwingen
         gainStatic = std::pow (10.0, staticDb / 20.0);
+        staticSnapPending = true;   // die Kanalzahl steht erst beim naechsten process() fest
         gainRide = 1.0;
         guardGain = 1.0;
         listenMix = params.deessListen ? 1.0 : 0.0;
@@ -1198,6 +1212,14 @@ public:
             channelLoudnessDb = 10.0 * std::log10 ((double) numCh);
             msK = outMs = 0.0;
             clearIntegrated();
+        }
+        if (staticSnapPending)
+        {
+            // Nach reset() sofort auf der richtigen Grundverstaerkung beginnen, jetzt mit bekannter Kanalzahl
+            // (sonst begann eine frische Stereo-Instanz fuer etwa 50 ms 3 dB zu laut).
+            staticSnapPending = false;
+            staticDb = std::isfinite (desiredStaticDb()) ? desiredStaticDb() : 0.0;
+            gainStatic = std::pow (10.0, staticDb / 20.0);
         }
         if (intResetRequest.exchange (false)) clearIntegrated();
         if (levelerResetRequest.exchange (false)) { ride1 = ride2 = 0.0; gainRide = 1.0; msK = 0.0; }
@@ -1437,6 +1459,7 @@ private:
 
     double fs = 48000.0;
     int activeChannels = 1;
+    bool staticSnapPending = false;
     double channelLoudnessDb = 0.0;
     EngineParams params;
     FineEq fineEq;

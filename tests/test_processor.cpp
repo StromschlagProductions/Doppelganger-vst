@@ -59,6 +59,7 @@ void stateAndLearning()
     CHECK (dop::curveDistanceDb (p->getDisplayInfo().profile.curveDb, learned.profile.curveDb) < 0.001);
     p->startLearning(); feed (*p, 48000, 16); CHECK (p->isLearning());   // fruehestens nach 20 s Sprache
     feed (*p, 48000, 14); CHECK (! p->isLearning()); CHECK (p->wasStoppedAutomatically());
+    CHECK (p->getDisplayInfo().profile.speechSeconds >= 19.9f && p->getDisplayInfo().profile.speechSeconds <= 30.5f);   // nicht vor 20 s
     CHECK (p->getDisplayInfo().profile.valid);
     // Overflow must be reported instead of silently saving a biased profile.
     p->startLearning(); feed (*p, 48000, 4, false); DoppelgangerProcessorTestAccess::tick (*p);
