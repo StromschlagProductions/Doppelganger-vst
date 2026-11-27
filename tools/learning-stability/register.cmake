@@ -1,0 +1,2 @@
+set(DOPPELGANGER_AUDIT_DIR "${CMAKE_CURRENT_LIST_DIR}")
+cmake_language(DEFER CALL include "${DOPPELGANGER_AUDIT_DIR}/target.cmake")

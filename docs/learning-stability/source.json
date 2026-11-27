@@ -1,0 +1,12 @@
+{
+  "dataset": "MikhailT/cmu-arctic",
+  "revision": "b88ad416e092c4dfdffc6071f4b8e2d057a160f9",
+  "original_source": "https://festvox.org/cmu_arctic/",
+  "original_paper": "https://www.cs.cmu.edu/~awb/papers/ssw5/arctic.pdf",
+  "plugin_commit": "a130fd4e803fa097d7a72b34d4a25737f5e798ac",
+  "evaluation_hz": [
+    100,
+    7000
+  ],
+  "recordings_included": false
+}

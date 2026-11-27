@@ -1,0 +1,386 @@
+{
+  "evaluation_hz": [
+    100,
+    7000
+  ],
+  "cohorts": [
+    {
+      "speaker": "bdl",
+      "fs": 44100,
+      "kind": "auto",
+      "valid": 12,
+      "total": 12,
+      "stopped": 12,
+      "speech_range": [
+        20.0852604,
+        30.0001812
+      ],
+      "pitch_range": [
+        115.445023,
+        121.823204
+      ],
+      "register_counts": [
+        12,
+        0,
+        0
+      ],
+      "median_pair_mean_db": 0.4527366732277013,
+      "worst_pair_mean_db": 0.8376660127266666,
+      "worst_pair_ids": [
+        "bdl_44100_auto_04",
+        "bdl_44100_auto_09"
+      ],
+      "worst_pair_max_db": 2.8817369900000003,
+      "fixed_register": 0,
+      "fixed_median_pair_mean_db": 0.4527366732277013,
+      "fixed_worst_pair_mean_db": 0.8376660127266666
+    },
+    {
+      "speaker": "bdl",
+      "fs": 48000,
+      "kind": "auto",
+      "valid": 12,
+      "total": 12,
+      "stopped": 12,
+      "speech_range": [
+        20.0319996,
+        30.0160007
+      ],
+      "pitch_range": [
+        115.662651,
+        121.827408
+      ],
+      "register_counts": [
+        12,
+        0,
+        0
+      ],
+      "median_pair_mean_db": 0.4550018797241379,
+      "worst_pair_mean_db": 0.8325514591781609,
+      "worst_pair_ids": [
+        "bdl_48000_auto_04",
+        "bdl_48000_auto_09"
+      ],
+      "worst_pair_max_db": 2.8826290400000003,
+      "fixed_register": 0,
+      "fixed_median_pair_mean_db": 0.4550018797241379,
+      "fixed_worst_pair_mean_db": 0.8325514591781609
+    },
+    {
+      "speaker": "bdl",
+      "fs": 48000,
+      "kind": "short",
+      "valid": 12,
+      "total": 12,
+      "stopped": 0,
+      "speech_range": [
+        7.53066683,
+        7.78666687
+      ],
+      "pitch_range": [
+        116.222763,
+        125
+      ],
+      "register_counts": [
+        12,
+        0,
+        0
+      ],
+      "median_pair_mean_db": 0.6225030520762069,
+      "worst_pair_mean_db": 1.6082651826701149,
+      "worst_pair_ids": [
+        "bdl_48000_short_10",
+        "bdl_48000_short_11"
+      ],
+      "worst_pair_max_db": 3.722093108,
+      "fixed_register": 0,
+      "fixed_median_pair_mean_db": 0.6225030520762069,
+      "fixed_worst_pair_mean_db": 1.6082651826701149
+    },
+    {
+      "speaker": "bdl",
+      "fs": 48000,
+      "kind": "long",
+      "valid": 12,
+      "total": 12,
+      "stopped": 0,
+      "speech_range": [
+        48.1279984,
+        59.114666
+      ],
+      "pitch_range": [
+        117.936119,
+        122.137405
+      ],
+      "register_counts": [
+        12,
+        0,
+        0
+      ],
+      "median_pair_mean_db": 0.27238675356747133,
+      "worst_pair_mean_db": 0.612529492113793,
+      "worst_pair_ids": [
+        "bdl_48000_long_09",
+        "bdl_48000_long_11"
+      ],
+      "worst_pair_max_db": 1.0738528678,
+      "fixed_register": 0,
+      "fixed_median_pair_mean_db": 0.27238675356747133,
+      "fixed_worst_pair_mean_db": 0.612529492113793
+    },
+    {
+      "speaker": "slt",
+      "fs": 44100,
+      "kind": "auto",
+      "valid": 12,
+      "total": 12,
+      "stopped": 12,
+      "speech_range": [
+        20.1084805,
+        30.0234013
+      ],
+      "pitch_range": [
+        168.965515,
+        177.108429
+      ],
+      "register_counts": [
+        0,
+        12,
+        0
+      ],
+      "median_pair_mean_db": 0.5737155581729885,
+      "worst_pair_mean_db": 1.0589933298942527,
+      "worst_pair_ids": [
+        "slt_44100_auto_10",
+        "slt_44100_auto_11"
+      ],
+      "worst_pair_max_db": 2.72819591,
+      "fixed_register": 1,
+      "fixed_median_pair_mean_db": 0.5737155581729885,
+      "fixed_worst_pair_mean_db": 1.0589933298942527
+    },
+    {
+      "speaker": "slt",
+      "fs": 48000,
+      "kind": "auto",
+      "valid": 12,
+      "total": 12,
+      "stopped": 12,
+      "speech_range": [
+        20.0319996,
+        30.0160007
+      ],
+      "pitch_range": [
+        169.014084,
+        177.121765
+      ],
+      "register_counts": [
+        0,
+        12,
+        0
+      ],
+      "median_pair_mean_db": 0.582580824412299,
+      "worst_pair_mean_db": 1.1362098126241382,
+      "worst_pair_ids": [
+        "slt_48000_auto_07",
+        "slt_48000_auto_10"
+      ],
+      "worst_pair_max_db": 2.8843353379999996,
+      "fixed_register": 1,
+      "fixed_median_pair_mean_db": 0.582580824412299,
+      "fixed_worst_pair_mean_db": 1.1362098126241382
+    },
+    {
+      "speaker": "slt",
+      "fs": 48000,
+      "kind": "short",
+      "valid": 12,
+      "total": 12,
+      "stopped": 0,
+      "speech_range": [
+        6.84800005,
+        7.40266657
+      ],
+      "pitch_range": [
+        168.421051,
+        179.775284
+      ],
+      "register_counts": [
+        0,
+        12,
+        0
+      ],
+      "median_pair_mean_db": 0.7893286130137931,
+      "worst_pair_mean_db": 1.7010361934666665,
+      "worst_pair_ids": [
+        "slt_48000_short_07",
+        "slt_48000_short_08"
+      ],
+      "worst_pair_max_db": 3.4290325028,
+      "fixed_register": 1,
+      "fixed_median_pair_mean_db": 0.7893286130137931,
+      "fixed_worst_pair_mean_db": 1.7010361934666665
+    },
+    {
+      "speaker": "slt",
+      "fs": 48000,
+      "kind": "long",
+      "valid": 12,
+      "total": 12,
+      "stopped": 0,
+      "speech_range": [
+        49.3653336,
+        60.5013351
+      ],
+      "pitch_range": [
+        171.428574,
+        175.18248
+      ],
+      "register_counts": [
+        0,
+        12,
+        0
+      ],
+      "median_pair_mean_db": 0.37266776511781613,
+      "worst_pair_mean_db": 0.6727794210574712,
+      "worst_pair_ids": [
+        "slt_48000_long_01",
+        "slt_48000_long_07"
+      ],
+      "worst_pair_max_db": 1.776073036,
+      "fixed_register": 1,
+      "fixed_median_pair_mean_db": 0.37266776511781613,
+      "fixed_worst_pair_mean_db": 0.6727794210574712
+    }
+  ],
+  "controls": [
+    {
+      "speaker": "bdl",
+      "repeat_identical": true,
+      "chunk_identical": true,
+      "gain_24db_mean_difference_db": 1.3221540228060743e-07,
+      "gain_stopped_seconds_difference": 0.0
+    },
+    {
+      "speaker": "slt",
+      "repeat_identical": true,
+      "chunk_identical": true,
+      "gain_24db_mean_difference_db": 0.004122664632183883,
+      "gain_stopped_seconds_difference": -0.08533330000000205
+    }
+  ],
+  "synthetic": [
+    {
+      "id": "synth_f120_s5",
+      "pitch": 119.106697,
+      "register": 0,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f120_s30",
+      "pitch": 120.300751,
+      "register": 0,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f157_s5",
+      "pitch": 155.844162,
+      "register": 0,
+      "speech": 20.0319996,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f157_s30",
+      "pitch": 157.377045,
+      "register": 0,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f164_s5",
+      "pitch": 162.711868,
+      "register": 1,
+      "speech": 20.0533333,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f164_s30",
+      "pitch": 164.38356,
+      "register": 1,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f210_s5",
+      "pitch": 208.695648,
+      "register": 1,
+      "speech": 20.0319996,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f210_s30",
+      "pitch": 210.526321,
+      "register": 1,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f222_s5",
+      "pitch": 220.183487,
+      "register": 1,
+      "speech": 20.0533333,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f222_s30",
+      "pitch": 222.222229,
+      "register": 1,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f230_s5",
+      "pitch": 228.571426,
+      "register": 2,
+      "speech": 20.0533333,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f230_s30",
+      "pitch": 229.66507,
+      "register": 2,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f260_s5",
+      "pitch": 258.064514,
+      "register": 2,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    },
+    {
+      "id": "synth_f260_s30",
+      "pitch": 260.869568,
+      "register": 2,
+      "speech": 20.074667,
+      "stopped": true,
+      "amount": 85
+    }
+  ]
+}

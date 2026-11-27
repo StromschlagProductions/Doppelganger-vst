@@ -1,0 +1,98 @@
+[
+  {
+    "id": "bdl_44100_auto_00",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "bdl_44100_auto_04",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "bdl_44100_auto_09",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "bdl_48000_auto_00",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "bdl_48000_auto_04",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "bdl_48000_auto_09",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_44100_auto_00",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_44100_auto_04",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_44100_auto_09",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_48000_auto_00",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_48000_auto_04",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  },
+  {
+    "id": "slt_48000_auto_09",
+    "stop_difference_seconds": 0.0,
+    "profile_max_difference_db": 0.0,
+    "correction_max_difference_db": 5.240000000128475e-06,
+    "pitch_difference_hz": 0.0,
+    "register_equal": true
+  }
+]
