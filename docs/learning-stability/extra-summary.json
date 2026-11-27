@@ -1,0 +1,386 @@
+{
+  "microphone": [
+    {
+      "id": "bdl_mic_00",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.1273311937022619,
+      "amount_clean": 60.0000038,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_01",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0677028073185006,
+      "amount_clean": 55,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_02",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.981222524482697,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "bdl_mic_03",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0656328140761213,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "bdl_mic_04",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.140077036472165,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "bdl_mic_05",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9964819090719614,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "bdl_mic_06",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.055502515801762,
+      "amount_clean": 55,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_07",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0333154165345457,
+      "amount_clean": 55,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_08",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9584995331176612,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "bdl_mic_09",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0863936162509527,
+      "amount_clean": 55,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_10",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0394211640245885,
+      "amount_clean": 55,
+      "amount_mic": 70
+    },
+    {
+      "id": "bdl_mic_11",
+      "reg_clean": 0,
+      "reg_mic": 0,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9859537966048214,
+      "amount_clean": 60.0000038,
+      "amount_mic": 75
+    },
+    {
+      "id": "slt_mic_00",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.301750242730863,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_01",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9908984577161877,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_02",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0284928791954133,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_03",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.11666513483546,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_04",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.015730432574814,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_05",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.930638434769746,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_06",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9251099995052373,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_07",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 1.0779118139744548,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_08",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9453622704069663,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_09",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9395205445215122,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_10",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.8981206428616668,
+      "amount_clean": 75,
+      "amount_mic": 80
+    },
+    {
+      "id": "slt_mic_11",
+      "reg_clean": 1,
+      "reg_mic": 1,
+      "before_rms_db": 2.950714519898032,
+      "after_rms_db": 0.9997125382090264,
+      "amount_clean": 75,
+      "amount_mic": 80
+    }
+  ],
+  "rate_consistency": [
+    {
+      "id": "bdl_00",
+      "mean_difference_db": 0.010225352478160905,
+      "max_difference_db": 0.05311018200000006,
+      "stop_difference_seconds": 0.0766258999999998
+    },
+    {
+      "id": "bdl_01",
+      "mean_difference_db": 0.007426472695402322,
+      "max_difference_db": 0.037761091999999996,
+      "stop_difference_seconds": 0.1114557999999981
+    },
+    {
+      "id": "bdl_02",
+      "mean_difference_db": 0.00877860893563218,
+      "max_difference_db": 0.06293055400000003,
+      "stop_difference_seconds": 0.01915650000000113
+    },
+    {
+      "id": "bdl_03",
+      "mean_difference_db": 0.008963302908045973,
+      "max_difference_db": 0.058017193999999994,
+      "stop_difference_seconds": 0.11580950000000101
+    },
+    {
+      "id": "bdl_04",
+      "mean_difference_db": 0.009976632035402307,
+      "max_difference_db": 0.06880915099999996,
+      "stop_difference_seconds": 0.1280000000000001
+    },
+    {
+      "id": "bdl_05",
+      "mean_difference_db": 0.006216116911494242,
+      "max_difference_db": 0.021299599999999974,
+      "stop_difference_seconds": 0.02612240000000199
+    },
+    {
+      "id": "bdl_06",
+      "mean_difference_db": 0.009587417448850565,
+      "max_difference_db": 0.040787220000000346,
+      "stop_difference_seconds": 0.02786389999999983
+    },
+    {
+      "id": "bdl_07",
+      "mean_difference_db": 0.005612328377931034,
+      "max_difference_db": 0.032758266000000036,
+      "stop_difference_seconds": 0.06791839999999993
+    },
+    {
+      "id": "bdl_08",
+      "mean_difference_db": 0.004711953586206897,
+      "max_difference_db": 0.03144788799999998,
+      "stop_difference_seconds": 0.14106119999999933
+    },
+    {
+      "id": "bdl_09",
+      "mean_difference_db": 0.008152249163218373,
+      "max_difference_db": 0.028313078,
+      "stop_difference_seconds": 0.011319699999997823
+    },
+    {
+      "id": "bdl_10",
+      "mean_difference_db": 0.009915597017241387,
+      "max_difference_db": 0.0590961579999999,
+      "stop_difference_seconds": 0.058340099999998785
+    },
+    {
+      "id": "bdl_11",
+      "mean_difference_db": 0.00880823510793102,
+      "max_difference_db": 0.04157561099999996,
+      "stop_difference_seconds": 0.07401360000000068
+    },
+    {
+      "id": "slt_00",
+      "mean_difference_db": 0.03891800266666666,
+      "max_difference_db": 0.18676364000000012,
+      "stop_difference_seconds": 0.04092520000000022
+    },
+    {
+      "id": "slt_01",
+      "mean_difference_db": 0.04007787298275865,
+      "max_difference_db": 0.17477606999999984,
+      "stop_difference_seconds": 0.043537400000001725
+    },
+    {
+      "id": "slt_02",
+      "mean_difference_db": 0.028576011690804624,
+      "max_difference_db": 0.13317596899999995,
+      "stop_difference_seconds": 0.0322177000000039
+    },
+    {
+      "id": "slt_03",
+      "mean_difference_db": 0.04219009081620692,
+      "max_difference_db": 0.18175295000000002,
+      "stop_difference_seconds": 0.012190499999999105
+    },
+    {
+      "id": "slt_04",
+      "mean_difference_db": 0.043003623363218405,
+      "max_difference_db": 0.18853485600000008,
+      "stop_difference_seconds": 0.07314289999999701
+    },
+    {
+      "id": "slt_05",
+      "mean_difference_db": 0.03823906251500002,
+      "max_difference_db": 0.1741817590000001,
+      "stop_difference_seconds": 0.02786389999999983
+    },
+    {
+      "id": "slt_06",
+      "mean_difference_db": 0.06379608589885054,
+      "max_difference_db": 0.20905231999999996,
+      "stop_difference_seconds": 0.10971429999999671
+    },
+    {
+      "id": "slt_07",
+      "mean_difference_db": 0.3065485493402299,
+      "max_difference_db": 0.7936379900000001,
+      "stop_difference_seconds": 9.805496599999998
+    },
+    {
+      "id": "slt_08",
+      "mean_difference_db": 0.031634074556781584,
+      "max_difference_db": 0.14252042799999998,
+      "stop_difference_seconds": 0.08185040000000043
+    },
+    {
+      "id": "slt_09",
+      "mean_difference_db": 0.03523729734367814,
+      "max_difference_db": 0.160617202,
+      "stop_difference_seconds": 0.033088400000004015
+    },
+    {
+      "id": "slt_10",
+      "mean_difference_db": 0.0349116036022988,
+      "max_difference_db": 0.15775466000000016,
+      "stop_difference_seconds": 0.033959200000001744
+    },
+    {
+      "id": "slt_11",
+      "mean_difference_db": 0.03978030769310345,
+      "max_difference_db": 0.17525452399999997,
+      "stop_difference_seconds": 0.10971430000000026
+    }
+  ],
+  "isolated_reference_effect": [
+    {
+      "profile": "synth_f157_s5",
+      "registers": [
+        0,
+        1
+      ],
+      "same_profile_different_reference_mean_db": 0.26036691629885056,
+      "max_db": 1.44393969
+    },
+    {
+      "profile": "synth_f222_s5",
+      "registers": [
+        1,
+        2
+      ],
+      "same_profile_different_reference_mean_db": 1.1328258286781607,
+      "max_db": 3.5740676000000002
+    }
+  ]
+}

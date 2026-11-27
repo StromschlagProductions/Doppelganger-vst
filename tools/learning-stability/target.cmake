@@ -1,0 +1,5 @@
+juce_add_console_app(stability_processor PRODUCT_NAME "Stability processor audit")
+target_sources(stability_processor PRIVATE "${CMAKE_CURRENT_LIST_DIR}/processor.cpp")
+target_link_libraries(stability_processor PRIVATE Doppelganger)
+target_include_directories(stability_processor PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source" $<TARGET_PROPERTY:Doppelganger,INCLUDE_DIRECTORIES>)
+target_compile_definitions(stability_processor PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
