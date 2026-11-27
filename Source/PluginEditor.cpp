@@ -125,7 +125,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
           "und korrigiert die Verstärkung innerhalb seiner Grenzen. Standardziel: −23 LUFS. AUTO aus: Die Lautheitswirkung wird nur vorausberechnet.");
     note ("Das Ziel gilt für den nachgemessenen Lernmitschnitt. Andere Sätze, spätere lautere oder leisere Abschnitte und andere Exportbereiche können abweichen. "
           "Eine repräsentative Passage mit normaler Sprache lernen. Einzelne Wörter dürfen unterschiedlich laut sein; −23 LUFS ist kein Spitzenpegel von −23 dBFS. "
-          "Die grüne Prüfung beschreibt den Mitschnitt und die zugehörigen Einstellungen.");
+          "Die grüne Prüfung beschreibt den Mitschnitt und die zugehörigen Einstellungen einschließlich der Abtastrate. Nach einem Abtastratenwechsel bitte neu lernen. Der begrenzte Mitschnitt behält die zuletzt aufgenommenen Samples.");
     body ("Leveler: fährt darüber hinaus sanft wie ein Fader und gleicht leise und laute Passagen an. Der Regler bestimmt den Bereich: "
           "0 % = aus, 100 % = bis zu ±10 dB. In ausreichend leisen Pausen hält er still. Er kann die integrierte Lautheit verändern; AUTO misst diese Wirkung am Lernmitschnitt nach. Bei jedem Wiedergabestart beginnt er neutral, genau wie beim Export. Die Grundverstärkung steht ab dem ersten Sample bereit.");
     body ("Messwert oben rechts in der Karte: die gemessene Lautheit des Ausgangs, integriert nach EBU R128, wie sie ein Loudness-Meter am Ende einer "

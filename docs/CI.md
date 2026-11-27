@@ -9,7 +9,7 @@ Alle bisherigen Prüfungen (Windows-Build, Regressionstests, pluginval Level 8, 
 | Workflow | Runner | Läuft bei | Läuft nicht bei |
 |---|---|---|---|
 | `build.yml` Windows-VST3 bauen (Build, Regressionstests, pluginval 8, ZIP) | Windows (Minuten x2) | **Run workflow** von Hand; Pull Request beim Öffnen oder bei „Ready for review“ (keine Drafts) | Push auf `main`, jeder weitere Push in einen PR, reine Doku-Änderungen |
-| `tests.yml` DSP und Speichersicherheit (ASan/UBSan, TSan) | Linux (ohne JUCE, billig) | Push auf `main` und PR, aber nur bei Änderungen an `Source/`, `tests/`, `CMakeLists.txt`, `VERSION`; außerdem von Hand | Doku-Änderungen, README, `docs/` |
+| `tests.yml` DSP und Speichersicherheit (ASan/UBSan, TSan) | Linux (ohne JUCE, billig) | Push auf `main`, Öffnen/Ready/Reopen eines PR und weitere Pushes in den PR, aber nur bei Änderungen an `Source/`, `tests/`, `CMakeLists.txt`, `VERSION`; außerdem von Hand | Doku-Änderungen, README, `docs/` |
 
 Weitere Maßnahmen:
 
@@ -33,3 +33,5 @@ Es wird nie automatisch ein Release oder Merge ausgelöst.
 Ein Windows-Lauf kostet etwa das Doppelte seiner Laufzeit in abgerechneten Minuten. Bei 188 verbleibenden Minuten reichen also nur wenige vollständige Abnahmeläufe. Der Zähler setzt sich mit dem neuen Abrechnungszeitraum zurück.
 
 Verbindliches öffentliches Versionsschema: `docs/VERSIONING.md` (ohne Build-Suffix).
+
+Seit 2.3 prüft ein zusätzlicher Linux-Lauf den echten JUCE-Prozessor mit ThreadSanitizer (`processor_concurrency`). Der günstige Linux-Workflow reagiert auf `synchronize`; der Windows-Build bleibt zur Begrenzung der Kosten bei seiner bisherigen manuellen/Ready-Abnahme.

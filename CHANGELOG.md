@@ -1,5 +1,15 @@
 # Änderungen
 
+## 2.3 – 27. November 2026
+
+- **Offline-Export:** Änderungen an Angleichung, Stimmlage, Angleich-Bereich und EQ-Lautheitsausgleich werden vor dem nächsten Audioblock übernommen, auch ohne Message-Loop-Takt. Hintergrund-Ergebnisse verändern eine laufende Offline-Berechnung nicht; eine veraltete Nachkorrektur wird dabei nicht angewendet. Der Echtzeitpfad bleibt frei von zusätzlichen Sperren und Speicheranforderungen.
+- **Lautheitsprüfung:** Die Nachmessung verwendet dieselbe gelernte Grundverstärkung wie die Wiedergabe, auch wenn nur ein Ausschnitt des Gelernten in den Speicher passt. Der begrenzte Mitschnitt behält die neuesten Samples in zeitlicher Reihenfolge; lange Anfangspausen verdrängen nicht dauerhaft die spätere Sprache.
+- **Abtastratenwechsel:** Lern-Audio wird nicht mehr mit einer anderen Rate interpretiert. Die bisherige Nachmessung wird verworfen; das Klangprofil bleibt erhalten, für eine neue Prüfung ist Neulernen nötig. Gespeicherte Prüfungen berücksichtigen jetzt die Abtastrate, auch beim Laden vor `prepareToPlay`.
+- **Nebenläufigkeit:** Autopilot-Flags werden durchgehend unter der Zustandssperre gelesen und verändert. CLEAR, neues Lernen und Abtastratenwechsel verwerfen auch bereits abgeschlossene oder noch laufende Hintergrundaufträge.
+- **Tests:** Neue Regressionen für 44,1/48 kHz, höhere Raten, Mitschnittgrenzen, Offline-Automation, Projektlade-Reihenfolgen und gleichzeitiges Laden. Linux-PR-Tests laufen auch nach weiteren Pushes; ein zusätzlicher ThreadSanitizer-Lauf prüft den echten Prozessor.
+
+[Release-Hinweise](docs/releases/2.3.md)
+
 ## 2.2 – 20. November 2026
 
 - **Behoben:** Bei Stereo-Spuren rechnete die Nachmessung die Kette einkanalig mit 0,5·(L+R). Bei hohem Ziel und stark eingreifendem Spitzenschutz passte sie dann nicht zum Ausgang (z. B. Ziel −16, L=R: −16,0 gemeldet, −15,2 LUFS tatsächlich). Mitgeschnitten werden jetzt beide Kanäle getrennt; die Nachmessung rechnet Lautheit und gekoppelten Spitzenschutz wie der Stereo-Ausgang. Auch der gemeldete Spitzenschutz-Wert stimmt damit für Stereo.

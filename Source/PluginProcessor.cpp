@@ -126,9 +126,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout DoppelgangerProcessor::creat
 void DoppelgangerProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const juce::ScopedLock stateGuard (stateLock);
-    currentFs = audioFs = dop::validSampleRate (sampleRate);
+    const double nextFs = dop::validSampleRate (sampleRate);
+    if (nextFs != currentFs && info.profile.valid)
+    {
+        // Hosts may restore state before prepareToPlay. Keep a stored measurement only if it explicitly
+        // belongs to the upcoming rate; a live capture always belongs to the rate at which it was recorded.
+        const bool storedForNextRate = calibAudio == nullptr && calibratedKey.size() == calibrationKey().size()
+                                       && ! calibratedKey.empty() && calibratedKey.back() == (float) nextFs;
+        if (! storedForNextRate)
+        {
+            invalidateCalibration();
+            calibAudio.reset();
+            calibAudioFs = 0.0;
+            info.canRecalibrate = false;
+            info.message = juce::String::fromUTF8 ("Abtastrate geändert: Für eine neue Lautheitsprüfung bitte neu lernen.");
+        }
+    }
+    currentFs = audioFs = nextFs;
     sampleRate = currentFs;
     engine.prepare (sampleRate);
+    wasPlaying = false;
     {
         const juce::ScopedLock sl (stateLock);
         learner.prepare (sampleRate);
@@ -141,6 +158,8 @@ void DoppelgangerProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     setLatencySamples (engine.latencySamples());   // 0: latenzfrei
     designDirty = true;
     redesign();
+    calibDb = info.calibration.ok && calibrationKeysMatch (calibrationKey(), calibratedKey)
+                ? info.calibration.calibDb : 0.0f;
 }
 
 bool DoppelgangerProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -153,6 +172,17 @@ bool DoppelgangerProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
 void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    float correctionDb = calibDb.load();
+    if (isNonRealtime())
+    {
+        // Offline audio can run far faster than the message loop. Rebuild before processing this block,
+        // including the gain estimate for the fine EQ. Allocation/locking is confined to this offline path.
+        const juce::ScopedLock stateGuard (stateLock);
+        refreshDesign();
+        const bool current = info.calibration.ok && calibrationKeysMatch (calibrationKey(), calibratedKey);
+        correctionDb = current ? info.calibration.calibDb : 0.0f;
+        info.calibrationCurrent = current && pAutopilot->load() > 0.5f;
+    }
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c)
         buffer.clear (c, 0, buffer.getNumSamples());
 
@@ -164,7 +194,7 @@ void DoppelgangerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     p.deessListen = pDeessListen->load() > 0.5f;
     p.takeLufs = takeLufs.load();
     p.rideOffsetDb = rideOffset.load();
-    p.calibDb = pAutopilot->load() > 0.5f ? calibDb.load() : 0.0f;
+    p.calibDb = pAutopilot->load() > 0.5f ? correctionDb : 0.0f;
     p.peakGuard = pAutopilot->load() > 0.5f;
     p.leveler = pLeveler->load() * 0.01f;
     p.targetLufs = pTarget->load();
@@ -289,8 +319,10 @@ void DoppelgangerProcessor::drainFifo()
 
 void DoppelgangerProcessor::timerCallback()
 {
-    if (autoApplyPending) applyAutopilotSettings();   // Parameter nie unter stateLock setzen
-    if (deessApplyPending) applyDeesserChoice();
+    // Do not let background completion or a wall-clock timer change the chain halfway through an export.
+    if (isNonRealtime()) return;
+    applyAutopilotSettings();   // pending flags are checked/consumed under stateLock; host notifications outside
+    applyDeesserChoice();
     const juce::ScopedLock stateGuard (stateLock);
     if (isLearning()) drainFifo();
     if (isLearning())
@@ -316,6 +348,14 @@ void DoppelgangerProcessor::timerCallback()
         }
     }
 
+    refreshDesign();
+    updateCalibration();
+    const int interval = isLearning() || info.profile.valid ? 33 : 200;
+    if (getTimerInterval() != interval) startTimer (interval);
+}
+
+void DoppelgangerProcessor::refreshDesign()
+{
     const float amount = pAmount->load(), lowcut = pLowcut->load();
     const int reg = (int) dop::finiteClamp (pRegister->load(), 0, 3, 0);
     const float mlo = pMatchLo->load(), mhi = pMatchHi->load();
@@ -337,9 +377,6 @@ void DoppelgangerProcessor::timerCallback()
         if (now != lastFineSnap)
             updateTakeLoudness();
     }
-    updateCalibration();
-    const int interval = isLearning() || info.profile.valid ? 33 : 200;
-    if (getTimerInterval() != interval) startTimer (interval);
 }
 
 int DoppelgangerProcessor::effectiveRegister() const
@@ -431,6 +468,12 @@ void DoppelgangerProcessor::startLearning()
 {
     const juce::ScopedLock stateGuard (stateLock);
     cancelLearning();
+    ++calibRequestId;
+    calibWorker.cancelPending();
+    autoApplyPending = false;
+    deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;
+    info.calibrationPending = false;
+    submittedCalibKey.clear();
     drainFifo(); // discard old generations
     {
         const juce::ScopedLock sl (stateLock);
@@ -464,15 +507,12 @@ void DoppelgangerProcessor::finishLearning()
     auto captured = learner.takeCapturedChannels();
     if (p.valid && p.speechSeconds >= kMinLearnSeconds)
     {
+        invalidateCalibration();
         info.profile = p;
         info.message = {};
         calibAudio = std::make_shared<const dop::CapturedAudio> (std::move (captured));
-        storedCalibration = {};
-        info.calibration = {};
-        calibDb = 0.0f;
-        lastCalibKey.clear();
-        submittedCalibKey.clear();
-        calibratedKey.clear();
+        calibAudioFs = currentFs;
+        info.canRecalibrate = true;
         learnedWithLowcut = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
         autoApplyPending = pAutopilot->load() > 0.5f;
         deessAnalysisWanted = autoApplyPending;   // danach den De-Esser aus den Zischlauten waehlen
@@ -498,16 +538,12 @@ void DoppelgangerProcessor::forgetProfile()
     const juce::ScopedLock stateGuard (stateLock);
     cancelLearning();
     const juce::ScopedLock sl (stateLock);
+    invalidateCalibration();
     info.profile = {};
     info.message = {};
     calibAudio.reset();
-    storedCalibration = {};
-    info.calibration = {};
-    calibratedKey.clear();
-    calibDb = 0.0f;
-    autoApplyPending = false;
-    deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;
-    info.deesser = {};
+    calibAudioFs = 0.0;
+    info.canRecalibrate = false;
     stoppedAuto = false;
     designDirty = true;
     redesign();
@@ -516,20 +552,22 @@ void DoppelgangerProcessor::forgetProfile()
 //==============================================================================
 void DoppelgangerProcessor::applyAutopilotSettings()
 {
-    autoApplyPending = false;
     dop::GridCurve curve {};
-    float pitch = 0.0f, mlo = 20.0f, mhi = 12000.0f;
+    float pitch = 0.0f, mlo = 20.0f, mhi = 12000.0f, learnedLowcut = 80.0f;
     int reg = dop::kMittel;
     {
         const juce::ScopedLock sl (stateLock);
+        if (! autoApplyPending) return;
+        autoApplyPending = false;
         if (! info.profile.valid || pAutopilot->load() <= 0.5f) return;
         curve = info.profile.curveDb;
         pitch = info.profile.pitchHz;
         reg = effectiveRegister();
         mlo = pMatchLo->load();
         mhi = pMatchHi->load();
+        learnedLowcut = learnedWithLowcut;
     }
-    const float lowcut = dop::autopilot::suggestLowcut (pitch, learnedWithLowcut);
+    const float lowcut = dop::autopilot::suggestLowcut (pitch, learnedLowcut);
     const float amount = dop::autopilot::suggestAmount (curve, reg, lowcut, mlo, mhi);
     auto set = [this] (const char* id, float value)
     {
@@ -546,10 +584,11 @@ void DoppelgangerProcessor::applyAutopilotSettings()
 
 void DoppelgangerProcessor::applyDeesserChoice()
 {
-    deessApplyPending = false;
     dop::autopilot::DeesserChoice c;
     {
         const juce::ScopedLock sl (stateLock);
+        if (! deessApplyPending) return;
+        deessApplyPending = false;
         if (! info.profile.valid || pAutopilot->load() <= 0.5f) return;
         c = info.deesser;
     }
@@ -575,14 +614,38 @@ std::vector<float> DoppelgangerProcessor::calibrationKey() const
                            pDeess->load(), pDeessOn->load(), pDeessFreq->load(), pLeveler->load(), pTarget->load(),
                            rideOffset.load(), eqDeltaDb };
     k.insert (k.end(), lastFineSnap.begin(), lastFineSnap.end());
+    k.push_back ((float) currentFs);   // measurements from another (or unknown legacy) rate are never certified
     return k;
+}
+
+void DoppelgangerProcessor::invalidateCalibration()
+{
+    ++calibRequestId;
+    calibWorker.cancelPending();
+    info.calibration = {};
+    info.calibrationCurrent = info.calibrationPending = false;
+    storedCalibration = {};
+    calibratedKey.clear();
+    lastCalibKey.clear();
+    submittedCalibKey.clear();
+    calibDb = 0.0f;
+    autoApplyPending = false;
+    deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;
+    info.deesser = {};
 }
 
 void DoppelgangerProcessor::updateCalibration()
 {
+    if (isLearning()) return; // finish/cancel first; the old profile must not submit new background work meanwhile
+    if (calibAudio != nullptr && calibAudioFs != currentFs)
+    {
+        invalidateCalibration();
+        calibAudio.reset();
+        calibAudioFs = 0.0;
+    }
     // Ergebnis abholen
     CalibrationWorker::Result fetched;
-    if (calibWorker.fetch (fetched) && fetched.id == calibRequestId)
+    if (calibWorker.fetch (fetched) && fetched.id == calibRequestId && info.profile.valid)
     {
         if (fetched.isDeesser)
         {
@@ -661,6 +724,7 @@ void DoppelgangerProcessor::updateCalibration()
         r.fs = currentFs;
         r.params.lowcutHz = dop::finiteClamp (pLowcut->load(), 20, 200, 80);
         r.learnedLowcutHz = learnedWithLowcut;
+        r.params.takeLufs = takeLufs.load();   // exactly the gain reference used in processBlock
         r.params.deessOn = pDeessOn->load() > 0.5f;
         r.params.deess = pDeess->load() * 0.01f;
         r.params.deessFreqHz = pDeessFreq->load();
@@ -717,6 +781,14 @@ void DoppelgangerProcessor::CalibrationWorker::submit (Request r)
     notify();
 }
 
+void DoppelgangerProcessor::CalibrationWorker::cancelPending()
+{
+    const juce::ScopedLock sl (lock);
+    cancel = true;
+    request = {};
+    hasRequest = hasResult = false;
+}
+
 bool DoppelgangerProcessor::CalibrationWorker::fetch (Result& out)
 {
     const juce::ScopedLock sl (lock);
@@ -742,7 +814,7 @@ void DoppelgangerProcessor::CalibrationWorker::run()
         if (r.deesser) res.deesser = dop::autopilot::chooseDeesser (r.audio->mono(), r.fs, r.params, r.bank, &cancel);
         else res.calibration = dop::autopilot::calibrate (*r.audio, r.fs, r.params, r.bank, r.eqDeltaDb, r.learnedLowcutHz, &cancel);
         const juce::ScopedLock sl (lock);
-        if (! hasRequest)   // sonst ist das Ergebnis schon veraltet
+        if (! hasRequest && ! cancel.load())   // cancelled jobs must not publish after CLEAR/new learning/rate change
         {
             result = res;
             hasResult = true;
@@ -908,8 +980,11 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
         if (! sameProfile)
         {
             ++calibRequestId;   // laufende Nachmessung/De-Esser-Wahl gehoert zum alten Profil: Ergebnis verwerfen
+            calibWorker.cancelPending();
             info.calibrationPending = false;
+            info.calibrationCurrent = false;
             calibAudio.reset();
+            calibAudioFs = 0.0;
             autoApplyPending = false;
             deessAnalysisWanted = deessAnalysisRunning = deessApplyPending = false;
             info.deesser = loadedDeess;
@@ -926,6 +1001,8 @@ void DoppelgangerProcessor::setStateInformation (const void* data, int sizeInByt
     }
     designDirty = true;
     redesign(); // state restore must not depend on an editor or message-loop tick
+    calibDb = info.calibration.ok && calibrationKeysMatch (calibrationKey(), calibratedKey)
+                ? info.calibration.calibDb : 0.0f;
 }
 
 juce::var DoppelgangerProcessor::getUiProperty (const juce::Identifier& key, const juce::var& fallback) const

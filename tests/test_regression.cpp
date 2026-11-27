@@ -502,7 +502,7 @@ void autopilotTests()
         // Mitschnitt: begrenzt, wird beim Abholen freigegeben
         dop::Learner cap; cap.prepare (fs); cap.beginCapture (2.0); cap.push (x.data(), (int) x.size());
         auto audio = cap.takeCapturedAudio();
-        CHECK (audio.size() == (size_t) (2 * fs) && std::equal (audio.begin(), audio.end(), x.begin()));
+        CHECK (audio.size() == (size_t) (2 * fs) && std::equal (audio.begin(), audio.end(), x.end() - (long) audio.size()));
         CHECK (cap.takeCapturedAudio().empty());
         cap.reset(); cap.push (x.data(), 100); CHECK (cap.takeCapturedAudio().empty());   // ohne beginCapture nichts
     }

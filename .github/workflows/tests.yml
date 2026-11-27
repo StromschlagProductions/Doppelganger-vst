@@ -6,7 +6,7 @@ on:
     paths: ['Source/**', 'tests/**', 'CMakeLists.txt', 'VERSION', '.github/workflows/tests.yml']
   pull_request:
     branches: [main]
-    types: [opened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['Source/**', 'tests/**', 'CMakeLists.txt', 'VERSION', '.github/workflows/tests.yml']
   workflow_dispatch:
 permissions:
@@ -39,3 +39,20 @@ jobs:
         run: cmake --build build --target test_transport --parallel 2
       - name: Test concurrent transport
         run: ctest --test-dir build -R concurrent_transport --output-on-failure
+
+  processor-tsan:
+    if: github.event_name != 'pull_request' || ! github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install JUCE build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libxrender-dev
+      - name: Configure processor TSan
+        run: cmake -S . -B build -DDOPPELGANGER_PLUGIN_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDOPPELGANGER_SANITIZER=thread
+      - name: Build processor concurrency test
+        run: cmake --build build --target test_processor --parallel 2
+      - name: Test concurrent host state and audio
+        run: ctest --test-dir build -R '^processor_concurrency$' --output-on-failure

@@ -96,6 +96,8 @@ private:
     friend struct DoppelgangerProcessorTestAccess;
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void timerCallback() override;
+    void refreshDesign();              // stateLock held; also used synchronously during offline rendering
+    void invalidateCalibration();      // stateLock held; invalidates queued and running worker results
     void drainFifo();
     void redesign();
     void updateTakeLoudness();          // Lautheit nach EQ + Feinabstimmung (Aufrufer haelt stateLock)
@@ -130,9 +132,11 @@ private:
         CalibrationWorker() : juce::Thread ("Doppelganger Nachmessung") {}
         ~CalibrationWorker() override { signalThreadShouldExit(); cancel = true; notify(); stopThread (4000); }
         void submit (Request r);
+        void cancelPending();
         bool fetch (Result& out);
         void run() override;
     private:
+        friend struct DoppelgangerProcessorTestAccess;
         juce::CriticalSection lock;
         Request request;
         bool hasRequest = false, hasResult = false;
@@ -142,7 +146,7 @@ private:
 
     dop::Engine engine;
     dop::Learner learner;
-    // Serialises host state/prepare calls and message-thread work. Never acquired by processBlock.
+    // Serialises host state/prepare calls and message-thread work. Real-time processBlock never acquires it.
     mutable juce::CriticalSection stateLock;
 
     // Audio-Thread -> Lernen
@@ -196,6 +200,7 @@ private:
     std::array<dop::Biquad, dop::kBands> designedBank {};
     std::atomic<float>* pAutopilot = nullptr;
     std::shared_ptr<const dop::CapturedAudio> calibAudio;   // gelernte Passage (nur Message-Thread)
+    double calibAudioFs = 0.0;          // never reinterpret a capture at a different sample rate
     float learnedWithLowcut = 80.0f;
     bool autoApplyPending = false;
     bool deessAnalysisWanted = false, deessAnalysisRunning = false, deessApplyPending = false;
