@@ -354,6 +354,7 @@ public:
         audio.clear();
         audioRight.clear();
         captureChannels = 0;
+        audioCap = captureWrite = 0;
     }
 
     // Autopilot: die gelernten Sekunden (Mono-Eingang vor dem Lowcut) mitschreiben, damit der Prozessor die ganze Kette
@@ -363,6 +364,7 @@ public:
         audio.clear();
         audioRight.clear();
         captureChannels = 0;
+        captureWrite = 0;
         audioCap = (size_t) std::clamp (seconds * fs, 0.0, (double) kMaxCaptureSamples);
         audio.reserve (audioCap);
     }
@@ -374,7 +376,14 @@ public:
         CapturedAudio out;
         out.left = std::move (audio);
         out.right = std::move (audioRight);
+        // Once full, retain the most recent samples. Return them in chronological order.
+        if (audioCap != 0 && out.size() == audioCap)
+        {
+            std::rotate (out.left.begin(), out.left.begin() + (long) captureWrite, out.left.end());
+            if (out.stereo()) std::rotate (out.right.begin(), out.right.begin() + (long) captureWrite, out.right.end());
+        }
         audio = {}; audioRight = {}; audioCap = 0; captureChannels = 0;
+        captureWrite = 0;
         return out;
     }
     static constexpr size_t kMaxCaptureSamples = 2400000;   // je Kanal: 50 s bei 48 kHz, 12,5 s bei 192 kHz
@@ -389,7 +398,7 @@ public:
         loudnessChannels = channelPower ? std::clamp (channels, 1, 2) : 1;
         clipped += std::max (0, clippedInBlock);
         const bool stereoBlock = captureSource != nullptr && captureRight != nullptr;
-        if (audio.size() < audioCap)
+        if (audioCap != 0)
         {
             if (captureChannels == 0)
             {
@@ -408,17 +417,23 @@ public:
         for (int i = 0; i < n; ++i)
         {
             const double v = std::isfinite (x[i]) ? x[i] : 0.0;
-            if (audio.size() < audioCap)
+            if (audioCap != 0)
             {
-                if (captureChannels == 2)
+                const float left = captureChannels == 2 ? clean (captureSource[i])
+                    : stereoBlock ? 0.5f * (clean (captureSource[i]) + clean (captureRight[i]))
+                    : captureSource != nullptr ? clean (captureSource[i]) : (float) v;
+                const float right = captureChannels == 2 ? clean (captureRight[i]) : 0.0f;
+                if (audio.size() < audioCap)
                 {
-                    audio.push_back (clean (captureSource[i]));
-                    audioRight.push_back (clean (captureRight[i]));
+                    audio.push_back (left);
+                    if (captureChannels == 2) audioRight.push_back (right);
                 }
-                else if (stereoBlock)
-                    audio.push_back (0.5f * (clean (captureSource[i]) + clean (captureRight[i])));
                 else
-                    audio.push_back (captureSource != nullptr ? clean (captureSource[i]) : (float) v);
+                {
+                    audio[captureWrite] = left;
+                    if (captureChannels == 2) audioRight[captureWrite] = right;
+                }
+                captureWrite = (captureWrite + 1) % audioCap;
             }
             // Spektrum
             buf[(size_t) (filled % frameLen)] = v;
@@ -673,7 +688,7 @@ private:
     std::array<int64_t, 150> levelHist {};
     int64_t clipped = 0;
     std::vector<float> audio, audioRight;   // Mitschnitt; audio ist bei Stereo der linke Kanal
-    size_t audioCap = 0;
+    size_t audioCap = 0, captureWrite = 0;
     int captureChannels = 0;                 // 0: noch nichts mitgeschnitten
 };
 
@@ -1647,12 +1662,17 @@ inline Calibration calibrate (const CapturedAudio& audio, double fs, EngineParam
     p.peakGuard = true;
     const int numCh = audio.channels();
     if (audio.size() < (size_t) (2.0 * fs) || (audio.stereo() && audio.right.size() != audio.size())) return r;
-    const float inLufs = integratedLoudness (audio, fs, learnedLowcutHz);   // wie beim Lernen gemessen
-    if (inLufs <= -70.0f) return r;
     p.deessListen = false;   // p.lowcutHz bleibt: der aktuelle Lowcut wirkt auf den ungefilterten Mitschnitt
-    // wie im Prozessor: gelernte Lautheit je Kanal; die Engine rechnet die Kanalzahl selbst wieder dazu
-    p.takeLufs = inLufs - (float) (10.0 * std::log10 ((double) numCh))
-                 + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
+    // The processor supplies its actual learned gain reference, which may cover more audio than the bounded
+    // capture. Re-estimating it from the capture would certify a different gain than the live engine uses.
+    // Standalone callers without a learned reference can still derive it from the supplied audio.
+    if (! std::isfinite (p.takeLufs) || p.takeLufs <= -99.0f)
+    {
+        const float inLufs = integratedLoudness (audio, fs, learnedLowcutHz);
+        if (inLufs <= -70.0f) return r;
+        p.takeLufs = inLufs - (float) (10.0 * std::log10 ((double) numCh))
+                     + (std::isfinite (predictedEqDeltaDb) ? predictedEqDeltaDb : 0.0f);
+    }
     p.calibDb = 0.0f;
     const std::vector<float>* src[] = { &audio.left, &audio.right };
     std::vector<float> buf[2] = { std::vector<float> (4096), std::vector<float> (numCh > 1 ? 4096 : 0) };

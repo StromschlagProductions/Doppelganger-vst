@@ -22,11 +22,25 @@ struct DoppelgangerProcessorTestAccess
     static void tick (DoppelgangerProcessor& p) { p.timerCallback(); }
     static int interval (DoppelgangerProcessor& p) { return p.getTimerInterval(); }
     static float takeLufs (DoppelgangerProcessor& p) { return p.takeLufs.load(); }
+    static float calibrationGain (DoppelgangerProcessor& p) { return p.calibDb.load(); }
+    static bool workerReady (DoppelgangerProcessor& p)
+    {
+        const juce::ScopedLock sl (p.calibWorker.lock);
+        return p.calibWorker.hasResult;
+    }
+    static void repeatCalibration (DoppelgangerProcessor& p)
+    {
+        DoppelgangerProcessor::CalibrationWorker::Request r;
+        r.audio = p.calibAudio; r.fs = p.currentFs; r.bank = p.designedBank;
+        r.params.takeLufs = p.takeLufs.load(); r.learnedLowcutHz = p.learnedWithLowcut;
+        r.id = p.calibRequestId;
+        p.calibWorker.submit (std::move (r));
+    }
 };
 void process (DoppelgangerProcessor& p, juce::AudioBuffer<float>& b)
 {
     juce::MidiBuffer midi;
-    audioAllocationGuard = true;
+    audioAllocationGuard = ! p.isNonRealtime(); // synchronous offline filter design may allocate; real-time may not
     p.processBlock (b, midi);
     audioAllocationGuard = false;
     CHECK (audioAllocations == 0);
@@ -558,9 +572,135 @@ void stereoCalibrationProcessor()
     }
 }
 
-int main()
+// Host automation must reach the next offline block without servicing the message loop.
+void offlineAutomation()
+{
+    for (double fs : { 44100., 48000. })
+    {
+        auto source = std::make_unique<DoppelgangerProcessor>(); source->prepareToPlay (fs, 512);
+        auto set = [] (DoppelgangerProcessor& p, const char* id, float value)
+        { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (value)); };
+        set (*source, "autopilot", 0); set (*source, "amount", 0);
+        source->startLearning(); feed (*source, fs, 5); source->finishLearning();
+        juce::MemoryBlock state; source->getStateInformation (state);
+        auto actual = std::make_unique<DoppelgangerProcessor>(), reference = std::make_unique<DoppelgangerProcessor>();
+        for (auto* p : { actual.get(), reference.get() })
+        { p->prepareToPlay (fs, 512); p->setStateInformation (state.getData(), (int) state.getSize()); p->setNonRealtime (true); }
+        struct Change { const char* id; float value; };
+        const Change changes[] { { "amount", 100 }, { "register", 3 }, { "matchLow", 400 }, { "matchHigh", 4000 },
+                                 { "fineOn", 1 }, { "fineDb3", 6 }, { "fineHz3", 1600 }, { "fineOn", 0 } };
+        const auto input = voice (fs, 0.15);
+        for (const auto& change : changes)
+        {
+            set (*actual, change.id, change.value); set (*reference, change.id, change.value);
+            // Control: exactly the same automation, with the message-loop update that the old code required.
+            reference->setNonRealtime (false); DoppelgangerProcessorTestAccess::tick (*reference); reference->setNonRealtime (true);
+            juce::AudioBuffer<float> a (2, (int) input.size()), b (2, (int) input.size());
+            for (int c = 0; c < 2; ++c)
+            { std::copy (input.begin(), input.end(), a.getWritePointer (c)); std::copy (input.begin(), input.end(), b.getWritePointer (c)); }
+            process (*actual, a); process (*reference, b);
+            for (int c = 0; c < 2; ++c) for (int i = 0; i < a.getNumSamples(); ++i)
+                CHECK (a.getSample (c, i) == b.getSample (c, i));
+        }
+    }
+}
+
+void rateInvalidatesCalibration()
+{
+    for (double fs : { 44100., 48000. })
+    {
+        auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (fs, 512);
+        p->startLearning(); feed (*p, fs, 6); p->finishLearning(); p->waitForCalibration (20000);
+        CHECK (p->getDisplayInfo().calibrationCurrent && p->getDisplayInfo().canRecalibrate);
+        juce::MemoryBlock state; p->getStateInformation (state);
+        p->prepareToPlay (fs, 128); DoppelgangerProcessorTestAccess::tick (*p);
+        CHECK (p->getDisplayInfo().canRecalibrate); // buffer-size-only changes preserve the recording
+        const double otherFs = fs == 44100. ? 48000. : 44100.;
+        p->prepareToPlay (otherFs, 512); DoppelgangerProcessorTestAccess::tick (*p);
+        const auto changed = p->getDisplayInfo();
+        CHECK (changed.profile.valid && ! changed.canRecalibrate && ! changed.calibrationCurrent && ! changed.calibration.ok);
+        CHECK (changed.message.isNotEmpty());
+
+        // Both host orderings: state before prepare, or prepare before state.
+        for (bool stateFirst : { false, true })
+        {
+            auto restored = std::make_unique<DoppelgangerProcessor>();
+            if (stateFirst) restored->setStateInformation (state.getData(), (int) state.getSize());
+            restored->prepareToPlay (fs, 512);
+            if (! stateFirst) restored->setStateInformation (state.getData(), (int) state.getSize());
+            DoppelgangerProcessorTestAccess::tick (*restored);
+            CHECK (restored->getDisplayInfo().calibrationCurrent);
+            for (double wrongFs : { otherFs, 96000., 192000. })
+            {
+                auto wrongRate = std::make_unique<DoppelgangerProcessor>(); wrongRate->prepareToPlay (wrongFs, 512);
+                wrongRate->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*wrongRate);
+                CHECK (! wrongRate->getDisplayInfo().calibrationCurrent);
+                CHECK (DoppelgangerProcessorTestAccess::calibrationGain (*wrongRate) == 0.0f);
+            }
+        }
+        // 2.2 states have no sample rate in their measurement key; retain the profile, never certify it.
+        auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()); CHECK (xml != nullptr);
+        auto* profile = xml->getChildByName ("PROFILE"); CHECK (profile != nullptr);
+        auto key = juce::StringArray::fromTokens (profile->getStringAttribute ("calibKey"), " ", "");
+        key.remove (key.size() - 1); profile->setAttribute ("calibKey", key.joinIntoString (" "));
+        juce::AudioProcessor::copyXmlToBinary (*xml, state);
+        auto legacy = std::make_unique<DoppelgangerProcessor>(); legacy->prepareToPlay (fs, 512);
+        legacy->setStateInformation (state.getData(), (int) state.getSize()); DoppelgangerProcessorTestAccess::tick (*legacy);
+        CHECK (legacy->getDisplayInfo().profile.valid && ! legacy->getDisplayInfo().calibrationCurrent);
+    }
+}
+
+void staleWorkerResults()
+{
+    auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (48000, 512);
+    p->startLearning(); feed (*p, 48000, 5); p->finishLearning(); p->waitForCalibration (20000);
+    CHECK (p->getDisplayInfo().calibrationCurrent);
+    auto completeOldJob = [&]
+    {
+        DoppelgangerProcessorTestAccess::repeatCalibration (*p);
+        const auto start = juce::Time::getMillisecondCounter();
+        while (! DoppelgangerProcessorTestAccess::workerReady (*p) && juce::Time::getMillisecondCounter() - start < 10000)
+            juce::Thread::sleep (1);
+        CHECK (DoppelgangerProcessorTestAccess::workerReady (*p)); // completed, not yet consumed by the timer
+    };
+    completeOldJob();
+    p->startLearning(); DoppelgangerProcessorTestAccess::tick (*p);
+    CHECK (! DoppelgangerProcessorTestAccess::workerReady (*p));
+    feed (*p, 48000, 5); p->finishLearning();
+    CHECK (! p->getDisplayInfo().calibration.ok); // old success must not certify the new profile
+    p->waitForCalibration (20000); CHECK (p->getDisplayInfo().calibrationCurrent);
+    completeOldJob();
+    p->forgetProfile(); DoppelgangerProcessorTestAccess::tick (*p);
+    const auto info = p->getDisplayInfo();
+    CHECK (! info.profile.valid && ! info.calibration.ok && ! info.calibrationCurrent && ! info.calibrationPending);
+}
+
+void concurrentStateRestore()
+{
+    auto p = std::make_unique<DoppelgangerProcessor>(); p->prepareToPlay (48000, 512);
+    juce::MemoryBlock state; p->getStateInformation (state);
+    std::atomic<bool> start { false }, done { false };
+    std::thread host ([&]
+    {
+        while (! start.load()) std::this_thread::yield();
+        for (int i = 0; i < 500; ++i) p->setStateInformation (state.getData(), (int) state.getSize());
+        done = true;
+    });
+    start = true;
+    do { DoppelgangerProcessorTestAccess::tick (*p); } while (! done.load());
+    host.join();
+}
+
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    if (argc > 1 && juce::String (argv[1]) == "--concurrency")
+    {
+        concurrentStateRestore(); concurrentHostAndAudio();
+        std::puts ("Concurrent state restore and audio transport passed");
+        return 0;
+    }
+    offlineAutomation(); rateInvalidatesCalibration(); staleWorkerResults(); concurrentStateRestore();
     stateAndLearning(); fineTuning(); matchRange(); channelLearning(); fineMouseTests(); rateAndDisplay(); concurrentHostAndAudio(); autopilotProcessor(); stereoCalibrationProcessor(); deesserAutopilotProcessor();
     std::puts ("Processor state, learning, display, concurrency and allocation checks passed");
 }

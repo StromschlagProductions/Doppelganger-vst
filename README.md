@@ -109,7 +109,7 @@ DOPPELGANGER ermittelt beim Lernen die **integrierte Lautheit** nach ITU-R BS.17
 
 Die **Grundverstärkung** wird aus der gelernten Lautheit berechnet. Beispiel: Von −30 auf −23 LUFS sind ohne weitere Klang- oder Dynamikänderung ungefähr +7 dB nötig. Mit **AUTO** rechnet das Plugin den gespeicherten Lernmitschnitt anschließend durch Lowcut, Angleich-EQ, Feinabstimmung, De-Esser, Leveler und Spitzenschutz. Es misst den Ausgang nach und korrigiert die Verstärkung innerhalb seiner Grenzen. AUTO aus: Die Lautheitswirkung wird nur vorausberechnet.
 
-**Das Ziel gilt für den nachgemessenen Lernmitschnitt.** Andere Sätze, spätere lautere oder leisere Abschnitte und anders gewählte Exportbereiche können eine andere integrierte Lautheit ergeben. Eine repräsentative Passage mit normaler Sprache lernen; kurze Takes bis zum Ende abspielen und mit **Done** abschließen. Die grüne Prüfung beschreibt die nachgemessene Passage und die dazugehörigen Einstellungen.
+**Das Ziel gilt für den nachgemessenen Lernmitschnitt.** Andere Sätze, spätere lautere oder leisere Abschnitte und anders gewählte Exportbereiche können eine andere integrierte Lautheit ergeben. Eine repräsentative Passage mit normaler Sprache lernen; kurze Takes bis zum Ende abspielen und mit **Done** abschließen. Die grüne Prüfung beschreibt die nachgemessene Passage und die dazugehörigen Einstellungen einschließlich der Abtastrate. Bei einem Abtastratenwechsel bitte neu lernen; gespeicherte Prüfungen aus älteren Versionen ohne Abtastrate gelten ebenfalls nicht als geprüft. Der speicherbegrenzte Mitschnitt behält die zuletzt aufgenommenen Samples (bei 44,1/48 kHz bis zu 40 Sekunden, bei höheren Raten gegebenenfalls kürzer).
 
 Der **Leveler** gleicht langsame Pegelunterschiede aus und kann die integrierte Lautheit verändern. AUTO berücksichtigt seine Wirkung bei der Nachmessung. Einzelne Wörter und Spitzen dürfen weiterhin lauter sein: **−23 LUFS ist kein Spitzenpegel von −23 dBFS.**
 
@@ -158,6 +158,7 @@ Die Versionsnummer steht in der Datei `VERSION`, im Plugin-Kopf und im Namen der
 Änderung hochgezählt. Alle Einzelheiten stehen in den [Änderungen](CHANGELOG.md), das Versionsschema in
 [Versionsnummern](docs/VERSIONING.md).
 
+- **2.3** – Zuverlässige Offline-Automation, abgesicherte Lautheitsprüfung bei begrenztem Mitschnitt und Abtastratenwechseln, behobene Nebenläufigkeit. [Release-Hinweise](docs/releases/2.3.md).
 - **2.2** – Stereo-Spuren werden kanalrichtig nachgemessen. Das Lernen endet erst, wenn auch die Lautheit stabil erfasst ist (frühestens nach 20 s Sprache). [Release-Hinweise](docs/releases/2.2.md).
 - **2.1** – Der Autopilot stellt auch den De-Esser ein: konservativ, nur aus sicher erkannten Zischlauten; unauffällige Stimmen bleiben unbearbeitet. [Release-Hinweise](docs/releases/2.1.md).
 - **2.0** – Verlässliche Prüfung auch nach Speichern/Laden und nach Lowcut-Änderungen, mit True-Peak-Angabe. [Release-Hinweise](docs/releases/2.0.md).
@@ -187,7 +188,7 @@ Wenige Regler heißen nicht, dass hier etwas schnell zusammengeschustert wurde. 
 
 - **pluginval, Stufe 8:** Vor jeder Veröffentlichung läuft das Prüfprogramm pluginval von Tracktion auf strenger Stufe. Es lädt das Plugin wieder und wieder, wechselt Abtastraten und Puffergrößen, speichert und lädt Einstellungen und fährt alle Regler mit Zufallswerten durch.
 - **Automatische Tests der Klangberechnung**, zusätzlich mit Speicher- und Fehlerprüfern (AddressSanitizer, UndefinedBehaviorSanitizer), die auch seltene Programmierfehler aufspüren.
-- **Echtzeitsicher:** Während der Wiedergabe wird kein Speicher angefordert und nirgends gewartet. Das verhindert Aussetzer und Knackser, auch bei kleinen Puffern und vielen Instanzen.
+- **Echtzeitsicher:** Im Echtzeitbetrieb während der Wiedergabe wird kein Speicher angefordert und nirgends gewartet. Das verhindert Aussetzer und Knackser, auch bei kleinen Puffern und vielen Instanzen.
 - **Saubere Feinabstimmung:** ausgeschaltet bitgenau unverändert, +6 dB am Regler ergeben +6 dB im Klang, kein Filter über der Nyquist-Grenze (siehe oben).
 - **Geprüft von 22,05 bis 192 kHz** Abtastrate, mit vielen verschiedenen Puffergrößen.
 - **De-Esser an echter Sprache vermessen:** An drei Sprachaufnahmen senkt er Zischlaute bei Standardstärke um 3 bis 4 dB ab, bei Vokalen im Mittel um weniger als 0,1 dB ([Messung](docs/DEESSER_1.4.md)).
