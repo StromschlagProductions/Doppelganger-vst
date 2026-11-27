@@ -71,3 +71,7 @@ The harness executes the actual mono `processBlock`, timer callback and autopilo
 ## Recorded environment
 
 Linux x86-64, GCC 14.2, Python 3.12.14. Corpus preparation: NumPy 2.5.5, SciPy 1.17.0, PyArrow 26.0.1. Summary/plot processing: NumPy 2.3.5, SciPy 1.17.0, Matplotlib 3.10.8. JUCE is the project dependency. Deterministic sentence selection, source hashes and float PCM hashes are recorded in `docs/learning-stability/provenance.json`. Cross-platform floating-point or dependency differences may prevent byte-identical output.
+
+## Original reference recordings
+
+The subsequently supplied reference WAVs are assessed in [a separate report](../../docs/REFERENCE_RECORDINGS_AUDIT_2.3.md). `check_references.py` checks locally supplied files against the embedded curves, inspects five-second windows and can compare four cases against the actual processor. It additionally requires SoundFile (recorded run: 0.14.0). See that report for the invocation. Source WAVs and PCM remain local; the repository contains only aggregate measurements and hashes.

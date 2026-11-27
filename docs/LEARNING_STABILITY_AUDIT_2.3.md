@@ -8,7 +8,7 @@ Die vorhandene Abstimmung erzielt in diesem begrenzten Praxistest bereits recht 
 
 Eine bekannte, breite zusätzliche EQ-Färbung wurde in allen 24 Vergleichsfällen teilweise ausgeglichen. Das belegt eine sinnvolle technische Wirkung des Matchings unter diesen Bedingungen. Es beweist weder einen universellen „Hörspielklang“ noch die klangliche Eignung der drei eingebauten Referenzen für jede Stimme.
 
-Die ursprünglichen Studio-Referenzen und die eigenen Sprecheraufnahmen standen für diese Prüfung nicht zur Verfügung. Ihre Eignung bleibt offen. Dafür wurden zwei echte Stimmen aus CMU ARCTIC verwendet, keine synthetischen Stimmen als Ersatz für den Sprachtest.
+Für den hier beschriebenen CMU-ARCTIC-Test lagen die ursprünglichen Studio-Referenzen und die eigenen Sprecheraufnahmen noch nicht vor. Die später nachgereichten drei Referenzen sind inzwischen [separat geprüft](REFERENCE_RECORDINGS_AUDIT_2.3.md): Die eingebauten Kurven stimmen exakt mit ihnen überein; bei einem kurzen manuell beendeten Ausschnitt ist ein Registerwechsel reproduziert. Die eigenen Sprecher-Takes fehlen weiterhin. Der folgende Test verwendet zwei echte Stimmen aus CMU ARCTIC.
 
 ## Material und Verfahren
 
@@ -60,13 +60,15 @@ Die Registerauswahl hat harte Grenzen bei 160 und 225 Hz. Zusätzliche synthetis
 
 Das ist eine mögliche Ursache stärkerer Änderungen bei Stimmen nahe einer Registergrenze. **In den beiden echten Teststimmen wurde ein solcher Wechsel nicht beobachtet.** Der isolierte Vergleich ist kein nachgewiesener Fehler eines realen Takes. Bevor hier Hysterese, feste Sprecherzuordnung oder Referenzmischung eingebaut wird, sollte der Fall mit echten Grenzstimmen reproduziert werden.
 
+Nachtrag: Mit der später nachgereichten Mittel-Referenz wurde ein solcher Wechsel für eine fünf Sekunden lange, manuell beendete Lernphase [inzwischen bestätigt](REFERENCE_RECORDINGS_AUDIT_2.3.md). Ein regulärer AUTO-Abschluss mit längerem Material derselben Stimme bleibt zu prüfen.
+
 ## Konsequenz für die Nutzung
 
 Das bestehende AUTO-Lernen zunächst vollständig durchlaufen lassen und repräsentative, normal gesprochene Passagen verwenden. Sehr frühes manuelles Beenden erhöht hier die Streuung. Innerhalb einer gleichbleibenden Sprecher-/Aufnahmesituation ist ein einmal vollständig gelerntes und gespeichertes Profil eine sinnvolle Grundlage für weitere Takes; nach Mikrofon-, Raum- oder wesentlichen Aufnahmeänderungen muss seine Eignung erneut geprüft werden.
 
 Die bisherige Feinabstimmung hat einen messbaren Nutzen. Längeres gemeinsames Lernen mehrerer Takes könnte die Streuung weiter reduzieren, ist aber anhand dieser Daten keine zwingende Voraussetzung für ein funktionierendes Plugin. Ein zusätzlicher Kompressor würde die untersuchte spektrale Textabhängigkeit nicht beheben.
 
-Die nächste aussagekräftige Prüfung benötigt die ursprünglichen drei Referenzaufnahmen und mehrere eigene Takes je Aufnahmequelle. Dabei sind Kurvenstreuung, Registergrenzen und der Frequenzbereich oberhalb 7 kHz mit dem tatsächlichen Material zu bewerten. Ein „grünes“ AUTO-/Lautheitsergebnis allein bescheinigt keinen universell richtigen Stimmklang.
+Die nächste aussagekräftige Prüfung der eigenen Aufnahmen benötigt mehrere eigene Takes je Aufnahmequelle. Die ursprünglichen drei Referenzaufnahmen sind inzwischen separat geprüft (siehe Nachtrag). Kurvenstreuung, Registergrenzen und der Frequenzbereich oberhalb 7 kHz sind mit dem tatsächlichen Material zu bewerten. Ein „grünes“ AUTO-/Lautheitsergebnis allein bescheinigt keinen universell richtigen Stimmklang.
 
 ## Nachweise und Reproduktion
 

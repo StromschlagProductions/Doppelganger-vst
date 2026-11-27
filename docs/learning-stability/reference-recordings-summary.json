@@ -1,0 +1,490 @@
+{
+  "evaluation_hz": [
+    100,
+    8000
+  ],
+  "references": [
+    {
+      "reference": "tief",
+      "sha256": "fa5a2f5ab908de2fb92656bf6762af0685ecd807f760dcf3c0aff552abee74db",
+      "fs": 48000,
+      "channels": 1,
+      "subtype": "PCM_24",
+      "samples": 636840,
+      "duration_seconds": 13.2675,
+      "peak_dbfs": -1.5413202679676765,
+      "truepeak_4x_dbtp": -1.5008723161513942,
+      "rms_dbfs": -17.7367544428284,
+      "crest_db": 16.195434174860722,
+      "samples_abs_ge_0999": 0,
+      "generated_bandwidth_hz": 16019.53125,
+      "embedded_max_rounding_difference_db": 0.0004988993011130205,
+      "rounded_curve_matches_embedded": true,
+      "full_pitch_hz": 103.671707,
+      "full_register": 0,
+      "full_speech_seconds": 12.6506662,
+      "full_learned_lufs_after_default_lowcut": -17.0991383,
+      "auto_stopped_before_file_end": false,
+      "self_match_eq": {
+        "mean_abs_db": 0.035448729726333325,
+        "max_abs_db": 0.352612793,
+        "max_hz": 101.354
+      },
+      "five_second_windows": [
+        {
+          "id": "tief_5s_00",
+          "start_seconds": 0.0,
+          "pitch_hz": 98.5626297,
+          "auto_register": 0,
+          "speech_seconds": 4.84266663,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.7877879619885554,
+            "max_abs_db": 2.5890790015,
+            "max_hz": 1291.02
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_01",
+          "start_seconds": 1.0,
+          "pitch_hz": 87.9120865,
+          "auto_register": 0,
+          "speech_seconds": 4.80000019,
+          "amount_fixed_register_percent": 55,
+          "amount_auto_register_percent": 55,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 1.2091518625353332,
+            "max_abs_db": 3.7645980986,
+            "max_hz": 1229.366
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_02",
+          "start_seconds": 2.0,
+          "pitch_hz": 92.664093,
+          "auto_register": 0,
+          "speech_seconds": 4.69333315,
+          "amount_fixed_register_percent": 50,
+          "amount_auto_register_percent": 50,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 1.060395695713,
+            "max_abs_db": 3.7110463926999997,
+            "max_hz": 1170.657
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_03",
+          "start_seconds": 3.0,
+          "pitch_hz": 93.9334641,
+          "auto_register": 0,
+          "speech_seconds": 4.69333315,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.7172951190161112,
+            "max_abs_db": 2.2450707532000003,
+            "max_hz": 1061.515
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_04",
+          "start_seconds": 4.0,
+          "pitch_hz": 98.9690704,
+          "auto_register": 0,
+          "speech_seconds": 4.69333315,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.7496551272181111,
+            "max_abs_db": 1.8949189327,
+            "max_hz": 962.548
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_05",
+          "start_seconds": 5.0,
+          "pitch_hz": 104.121475,
+          "auto_register": 0,
+          "speech_seconds": 4.71466684,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.38206350368655556,
+            "max_abs_db": 1.0811376981,
+            "max_hz": 619.665
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_06",
+          "start_seconds": 6.0,
+          "pitch_hz": 105.263161,
+          "auto_register": 0,
+          "speech_seconds": 4.71466684,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.3660761634245555,
+            "max_abs_db": 1.2524263206,
+            "max_hz": 590.072
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_07",
+          "start_seconds": 7.0,
+          "pitch_hz": 112.412178,
+          "auto_register": 0,
+          "speech_seconds": 4.58666658,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.5171941730598888,
+            "max_abs_db": 1.6974184773999998,
+            "max_hz": 561.893
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_08",
+          "start_seconds": 8.0,
+          "pitch_hz": 119.106697,
+          "auto_register": 0,
+          "speech_seconds": 4.6079998,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.4472940841518889,
+            "max_abs_db": 1.3923372545,
+            "max_hz": 535.059
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "tief_5s_09",
+          "start_seconds": 8.2675,
+          "pitch_hz": 116.222763,
+          "auto_register": 0,
+          "speech_seconds": 4.58666658,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.4439472860463222,
+            "max_abs_db": 1.3236057044999998,
+            "max_hz": 535.059
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        }
+      ]
+    },
+    {
+      "reference": "mittel",
+      "sha256": "d183a5ed4741f744d8d47e575205c0993fe75106943c4b013e7dbfae982c7086",
+      "fs": 48000,
+      "channels": 1,
+      "subtype": "PCM_24",
+      "samples": 420938,
+      "duration_seconds": 8.769541666666667,
+      "peak_dbfs": -1.7265804250533852,
+      "truepeak_4x_dbtp": -1.7157384873321386,
+      "rms_dbfs": -16.464502417241636,
+      "crest_db": 14.737921992188252,
+      "samples_abs_ge_0999": 0,
+      "generated_bandwidth_hz": 16019.53125,
+      "embedded_max_rounding_difference_db": 0.0004987207844013852,
+      "rounded_curve_matches_embedded": true,
+      "full_pitch_hz": 210.526321,
+      "full_register": 1,
+      "full_speech_seconds": 8.29866695,
+      "full_learned_lufs_after_default_lowcut": -16.6337395,
+      "auto_stopped_before_file_end": false,
+      "self_match_eq": {
+        "mean_abs_db": 0.0,
+        "max_abs_db": 0.0,
+        "max_hz": 101.354
+      },
+      "five_second_windows": [
+        {
+          "id": "mittel_5s_00",
+          "start_seconds": 0.0,
+          "pitch_hz": 175.824173,
+          "auto_register": 1,
+          "speech_seconds": 4.75733328,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.4749704929111111,
+            "max_abs_db": 0.843931198,
+            "max_hz": 7893.09
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "mittel_5s_01",
+          "start_seconds": 1.0,
+          "pitch_hz": 164.38356,
+          "auto_register": 1,
+          "speech_seconds": 4.75733328,
+          "amount_fixed_register_percent": 60.0000038,
+          "amount_auto_register_percent": 60.0000038,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 1.4497880178166664,
+            "max_abs_db": 3.78413343,
+            "max_hz": 2322.49
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "mittel_5s_02",
+          "start_seconds": 2.0,
+          "pitch_hz": 170.818512,
+          "auto_register": 1,
+          "speech_seconds": 4.67199993,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.8399361369577777,
+            "max_abs_db": 2.76836252,
+            "max_hz": 2322.49
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "mittel_5s_03",
+          "start_seconds": 3.0,
+          "pitch_hz": 177.777771,
+          "auto_register": 1,
+          "speech_seconds": 4.71466684,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.6403974140866,
+            "max_abs_db": 1.76346004,
+            "max_hz": 2105.961
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "mittel_5s_04",
+          "start_seconds": 3.769541666666667,
+          "pitch_hz": 241.206024,
+          "auto_register": 2,
+          "speech_seconds": 4.6293335,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 75,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.5604208037385555,
+            "max_abs_db": 1.1854341,
+            "max_hz": 7893.09
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 2.675244577054111,
+            "max_abs_db": 8.610912712,
+            "max_hz": 157.438
+          }
+        }
+      ]
+    },
+    {
+      "reference": "hoch",
+      "sha256": "5026c1dacfee592f55cf17a37d67c81e230684630a3d6244062b506d17728dfe",
+      "fs": 48000,
+      "channels": 1,
+      "subtype": "PCM_24",
+      "samples": 362470,
+      "duration_seconds": 7.551458333333334,
+      "peak_dbfs": -1.7478411655290857,
+      "truepeak_4x_dbtp": -1.7423137904980144,
+      "rms_dbfs": -16.963690665552534,
+      "crest_db": 15.21584950002345,
+      "samples_abs_ge_0999": 0,
+      "generated_bandwidth_hz": 16019.53125,
+      "embedded_max_rounding_difference_db": 0.0004989147843161845,
+      "rounded_curve_matches_embedded": true,
+      "full_pitch_hz": 242.42424,
+      "full_register": 2,
+      "full_speech_seconds": 7.31733322,
+      "full_learned_lufs_after_default_lowcut": -16.8312416,
+      "auto_stopped_before_file_end": false,
+      "self_match_eq": {
+        "mean_abs_db": 0.014200041157377781,
+        "max_abs_db": 0.049139183,
+        "max_hz": 129.45
+      },
+      "five_second_windows": [
+        {
+          "id": "hoch_5s_00",
+          "start_seconds": 0.0,
+          "pitch_hz": 242.42424,
+          "auto_register": 2,
+          "speech_seconds": 4.90666676,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.4500742083696444,
+            "max_abs_db": 0.7969418301,
+            "max_hz": 1114.751
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "hoch_5s_01",
+          "start_seconds": 1.0,
+          "pitch_hz": 240,
+          "auto_register": 2,
+          "speech_seconds": 4.80000019,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.3549829153758889,
+            "max_abs_db": 0.850128522,
+            "max_hz": 1170.657
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "hoch_5s_02",
+          "start_seconds": 2.0,
+          "pitch_hz": 241.206024,
+          "auto_register": 2,
+          "speech_seconds": 4.7786665,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.3712458568520666,
+            "max_abs_db": 0.8424517729,
+            "max_hz": 3978.532
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        },
+        {
+          "id": "hoch_5s_03",
+          "start_seconds": 2.5514583333333336,
+          "pitch_hz": 247.422684,
+          "auto_register": 2,
+          "speech_seconds": 4.73600006,
+          "amount_fixed_register_percent": 45,
+          "amount_auto_register_percent": 45,
+          "fixed_register_vs_full_eq": {
+            "mean_abs_db": 0.40874800406295553,
+            "max_abs_db": 0.9256234955,
+            "max_hz": 962.548
+          },
+          "auto_vs_fixed_register_eq": {
+            "mean_abs_db": 0.0,
+            "max_abs_db": 0.0,
+            "max_hz": 101.354
+          }
+        }
+      ]
+    }
+  ],
+  "processor_checks": [
+    {
+      "id": "tief_full_fixed",
+      "profile_max_difference_db": 0.0,
+      "pitch_equal": true,
+      "register_equal": true,
+      "stop_equal": true,
+      "correction_max_difference_db": 1.209999999848832e-08
+    },
+    {
+      "id": "mittel_full_fixed",
+      "profile_max_difference_db": 0.0,
+      "pitch_equal": true,
+      "register_equal": true,
+      "stop_equal": true,
+      "correction_max_difference_db": 6.050000000111522e-09
+    },
+    {
+      "id": "hoch_full_fixed",
+      "profile_max_difference_db": 0.0,
+      "pitch_equal": true,
+      "register_equal": true,
+      "stop_equal": true,
+      "correction_max_difference_db": 6.979999999864872e-09
+    },
+    {
+      "id": "mittel_5s_04",
+      "profile_max_difference_db": 0.0,
+      "pitch_equal": true,
+      "register_equal": true,
+      "stop_equal": true,
+      "correction_max_difference_db": 1.8699999999871597e-08
+    }
+  ]
+}
